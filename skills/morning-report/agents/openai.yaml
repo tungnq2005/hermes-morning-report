@@ -1,0 +1,4 @@
+interface:
+  display_name: "Morning Report"
+  short_description: "Set up, run, and update Telegram Morning Reports."
+  default_prompt: "Set up my Morning Report."

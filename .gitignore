@@ -1,0 +1,32 @@
+# Secrets — NEVER commit
+*.env
+!*.env.example
+**/google-creds/
+**/token.json
+**/client_secret.json
+*client_secret*.json
+*.pem
+*.key
+
+# Runtime state (per-deployment, not code)
+**/state/
+**/report-history/
+**/audio-history/
+**/output-history/
+
+# Backups / temp
+*.bak
+*.bak.*
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

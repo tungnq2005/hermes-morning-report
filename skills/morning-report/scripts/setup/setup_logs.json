@@ -1,0 +1,22 @@
+{
+  "openclaw_cli_unavailable": {
+    "status": "Setup cannot continue because the OpenClaw CLI is unavailable.",
+    "next_action": {
+      "instructions": [
+        "Tell the user setup cannot continue because the OpenClaw CLI is unavailable.",
+        "Do not ask for report configuration, save config, or create cron.",
+        "Ask the operator to verify the OpenClaw installation and PATH, then rerun setup."
+      ]
+    }
+  },
+  "cron_cli_unavailable": {
+    "status": "Setup cannot continue because OpenClaw cron commands are unavailable.",
+    "next_action": {
+      "instructions": [
+        "Tell the user setup cannot continue because OpenClaw cron support is unavailable.",
+        "Do not ask for report configuration, save config, or create cron.",
+        "Ask the operator to verify OpenClaw cron support, then rerun setup."
+      ]
+    }
+  }
+}
