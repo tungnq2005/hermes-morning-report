@@ -23,7 +23,7 @@ from config_status import DEFAULT_STATE, DEFAULT_USER, build_status  # noqa: E40
 DEFAULT_WORK_DIR = Path("/tmp/morning-report-run")
 DEFAULT_REPORT_FILE = Path("/tmp/morning-report.md")
 DEFAULT_AUDIO_SCRIPT_FILE = Path("/tmp/morning-report-audio.txt")
-DEFAULT_AUDIO_FILE = Path("/tmp/morning-report.mp3")
+DEFAULT_AUDIO_FILE = SKILL_DIR / "state" / "morning-report.mp3"
 DEFAULT_TARGET_FETCHED = 5
 RUNNER_SCRIPT = "skills/morning-report/scripts/report/run.py"
 
@@ -72,6 +72,7 @@ def compact_result(result: dict[str, Any]) -> dict[str, Any]:
         "validation",
         "report_output",
         "audio",
+        "history",
         "report_history",
         "audio_history",
         "next_action",

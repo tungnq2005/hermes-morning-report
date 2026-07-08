@@ -10,14 +10,25 @@
 
 # Runtime state (per-deployment, not code)
 **/state/
-**/report-history/
-**/audio-history/
 **/output-history/
+openclaw-workspace-state.json
+
+# OpenClaw customer-generated identity and memory files
+SOUL.md
+IDENTITY.md
+USER.md
+HEARTBEAT.md
+TOOLS.md
+BOOTSTRAP.md
+MEMORY.md
+memory/
 
 # Backups / temp
 *.bak
 *.bak.*
 *.tmp
+skills/*-backup*/
+*.deb
 
 # Python
 __pycache__/

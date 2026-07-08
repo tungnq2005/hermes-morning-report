@@ -19,7 +19,7 @@ class ReportHistoryTests(unittest.TestCase):
             state = tmp_path / "current-topics.md"
             user = tmp_path / "USER.md"
             audit = tmp_path / "audit.log"
-            history = tmp_path / "report-history"
+            history = tmp_path / "history"
             report = tmp_path / "report.md"
             report.write_text(
                 "# Morning Report — Test\n\nShort report body with one sourced claim.\n",
@@ -110,8 +110,9 @@ class ReportHistoryTests(unittest.TestCase):
             self.assertTrue((run_dir / "report.md").exists())
             self.assertTrue((run_dir / "manifest.json").exists())
             self.assertEqual(manifest["topics"], ["Vietnam stock market"])
-            self.assertEqual(manifest["audio_status"], "disabled")
-            self.assertEqual(manifest["source_count"], 1)
+            self.assertEqual(manifest["audio"]["status"], "disabled")
+            self.assertEqual(manifest["source_collection"]["source_count"], 1)
+            self.assertEqual(manifest["delivery"]["report_send_status"], "prepared")
             self.assertIn("audit_record", manifest)
 
             audit_records = [json.loads(line) for line in audit.read_text(encoding="utf-8").splitlines()]
@@ -125,10 +126,8 @@ class ReportHistoryTests(unittest.TestCase):
                 [
                     sys.executable,
                     str(HISTORY_SCRIPT),
-                    "--report-history",
+                    "--history",
                     str(history),
-                    "--audio-history",
-                    str(tmp_path / "audio-history"),
                     "--audit-log",
                     str(audit),
                     "--limit",
@@ -139,7 +138,9 @@ class ReportHistoryTests(unittest.TestCase):
                 check=True,
             )
             data = json.loads(status.stdout)
-            self.assertEqual(data["report_history"][0]["topics"], ["Vietnam stock market"])
+            self.assertEqual(data["history"][0]["topics"], ["Vietnam stock market"])
+            self.assertNotIn("report_history", data)
+            self.assertNotIn("audio_history", data)
             self.assertEqual(data["audit_tail"][0]["action"], "report_recorded")
 
     def test_record_report_dry_run_does_not_write_history_or_audit(self):
@@ -148,7 +149,7 @@ class ReportHistoryTests(unittest.TestCase):
             state = tmp_path / "current-topics.md"
             user = tmp_path / "USER.md"
             audit = tmp_path / "audit.log"
-            history = tmp_path / "report-history"
+            history = tmp_path / "history"
             report = tmp_path / "report.md"
             report.write_text("# Morning Report — Dry Run\n", encoding="utf-8")
             user.write_text("# USER\n", encoding="utf-8")
@@ -213,29 +214,26 @@ class ReportHistoryTests(unittest.TestCase):
             self.assertFalse(history.exists())
             self.assertFalse(audit.exists())
 
-    def test_record_report_infers_audio_manifest_from_matching_audio_output(self):
+    def test_record_report_copies_explicit_audio_manifest_to_unified_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             state = tmp_path / "current-topics.md"
             user = tmp_path / "USER.md"
             audit = tmp_path / "audit.log"
-            history = tmp_path / "report-history"
-            audio_history = tmp_path / "audio-history"
+            history = tmp_path / "history"
             report = tmp_path / "report.md"
             audio_file = tmp_path / "morning-report.mp3"
-            audio_manifest_dir = audio_history / "2026-07-03" / "110738-test"
-            audio_manifest_file = audio_manifest_dir / "manifest.json"
+            audio_manifest_file = tmp_path / "audio-manifest.json"
 
             report.write_text("# Morning Brief — Test\n\nBody.\n", encoding="utf-8")
             audio_file.write_bytes(b"mp3-data")
             user.write_text("# USER\n", encoding="utf-8")
-            audio_manifest_dir.mkdir(parents=True)
             audio_manifest_file.write_text(
                 json.dumps(
                     {
                         "success": True,
                         "output": str(audio_file),
-                        "history_audio": str(audio_manifest_dir / "morning-report.mp3"),
+                        "history_audio": str(audio_file),
                         "speed": 1.2,
                     },
                     ensure_ascii=False,
@@ -286,8 +284,6 @@ class ReportHistoryTests(unittest.TestCase):
                     str(report),
                     "--history-dir",
                     str(history),
-                    "--audio-history-dir",
-                    str(audio_history),
                     "--audit-log",
                     str(audit),
                     "--state",
@@ -296,6 +292,8 @@ class ReportHistoryTests(unittest.TestCase):
                     str(user),
                     "--audio-file",
                     str(audio_file),
+                    "--audio-manifest",
+                    str(audio_manifest_file),
                     "--audio-status",
                     "generated",
                     "--send-status",
@@ -306,11 +304,115 @@ class ReportHistoryTests(unittest.TestCase):
                 check=True,
             )
             manifest = json.loads(recorded.stdout)
-            copied_manifest = Path(manifest["audio_manifest_file"])
+            copied_manifest = Path(manifest["audio"]["manifest_file"])
 
             self.assertTrue(copied_manifest.exists())
-            self.assertEqual(manifest["audio_manifest_source_file"], str(audio_manifest_file))
+            self.assertEqual(manifest["audio"]["manifest_source_file"], str(audio_manifest_file))
             self.assertEqual(json.loads(copied_manifest.read_text(encoding="utf-8"))["speed"], 1.2)
+
+    def test_record_report_source_urls_prefer_fetched_sources_without_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            state = tmp_path / "current-topics.md"
+            user = tmp_path / "USER.md"
+            audit = tmp_path / "audit.log"
+            history = tmp_path / "history"
+            report = tmp_path / "report.md"
+            source_manifest = tmp_path / "sources.json"
+            report.write_text(
+                "# Morning Brief — Test\n\nBody [source](https://example.com/a).\n",
+                encoding="utf-8",
+            )
+            user.write_text("# USER\n", encoding="utf-8")
+            source_manifest.write_text(
+                json.dumps(
+                    {
+                        "source_count": 2,
+                        "fresh_24h_count": 2,
+                        "fetched_sources": [
+                            {"url": "https://example.com/a"},
+                            {"url": "https://example.com/b"},
+                        ],
+                        "sources": [
+                            {
+                                "url": "https://www.example.com/a",
+                                "fetch": {"final_url": "https://example.com/a"},
+                            },
+                            {
+                                "url": "https://www.example.com/b",
+                                "fetch": {"final_url": "https://example.com/b"},
+                            },
+                        ],
+                        "failed_fetch_urls": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(UPDATE_SCRIPT),
+                    "--state",
+                    str(state),
+                    "--user",
+                    str(user),
+                    "--audit-log",
+                    str(audit),
+                    "setup",
+                    "--topic",
+                    "Gold market",
+                    "--delivery-time",
+                    "7:00 AM",
+                    "--timezone",
+                    "Asia/Ho_Chi_Minh",
+                    "--report-style",
+                    "Concise",
+                    "--report-language",
+                    "English",
+                    "--audio-summary",
+                    "Disabled",
+                    "--delivery-channel",
+                    "Telegram",
+                    "--user-status",
+                    "enabled",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(RECORD_SCRIPT),
+                    "--report-file",
+                    str(report),
+                    "--history-dir",
+                    str(history),
+                    "--audit-log",
+                    str(audit),
+                    "--state",
+                    str(state),
+                    "--user",
+                    str(user),
+                    "--send-status",
+                    "sent",
+                    "--source-manifest",
+                    str(source_manifest),
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            manifest = json.loads(recorded.stdout)
+
+            self.assertEqual(
+                manifest["source_collection"]["source_urls"],
+                ["https://example.com/a", "https://example.com/b"],
+            )
+            self.assertEqual(manifest["source_collection"]["source_count"], 2)
 
 
 if __name__ == "__main__":

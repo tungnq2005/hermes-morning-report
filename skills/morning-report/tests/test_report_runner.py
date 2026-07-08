@@ -162,6 +162,79 @@ class ReportRunnerTests(unittest.TestCase):
             self.assertEqual(result["next_action"]["type"], "send_report")
             self.assertIn("record-report", result["next_action"]["next_command"])
 
+    def test_validate_report_rejects_unfetched_evidence_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            work_dir = tmp_path / "run"
+            report = tmp_path / "morning-report.md"
+            source_manifest = tmp_path / "source-manifest.json"
+            fetched_url = "https://example.com/fetched"
+            report.write_text(
+                "# Morning Brief — Test\n\n"
+                "## Snapshot\n"
+                "- One important update.\n\n"
+                "## Key updates\n"
+                f"- Valid update with [evidence]({fetched_url}).\n"
+                "- Invalid update with [evidence](https://example.com/inner-article).\n"
+                "- Update three.\n\n"
+                "## Watch next\n"
+                "- Signal one.\n",
+                encoding="utf-8",
+            )
+            source_manifest.write_text(
+                json.dumps(
+                    {
+                        "source_count": 1,
+                        "fresh_24h_count": 1,
+                        "fetched_sources": [{"url": fetched_url}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            common.save_run_state(
+                work_dir,
+                {
+                    "success": True,
+                    "phase": "fetch",
+                    "work_dir": str(work_dir),
+                    "report_file": str(report),
+                    "audio_script_file": str(tmp_path / "audio.txt"),
+                    "audio_file": str(tmp_path / "audio.mp3"),
+                    "config": {
+                        "report_style": "concise",
+                        "report_language": "English",
+                        "audio_enabled": False,
+                    },
+                    "source_collection": {"manifest_path": str(source_manifest)},
+                    "audio": {"enabled": False, "status": "disabled"},
+                },
+            )
+
+            result = validate_report_text.validate_report_phase(Namespace(work_dir=str(work_dir), report_file=None))
+
+            self.assertFalse(result["success"])
+            codes = {issue["code"] for issue in result["validation"]["report"]["issues"]}
+            self.assertIn("unfetched_evidence_link", codes)
+            self.assertEqual(result["next_action"]["type"], "revise_report")
+
+    def test_validate_report_rejects_decorative_title_symbol(self):
+        report = (
+            "# ⚡ Morning Brief — Test\n\n"
+            "## Snapshot\n"
+            "- One important update.\n\n"
+            "## Key updates\n"
+            "- Update one with [evidence](https://example.com/1).\n"
+            "- Update two with [evidence](https://example.com/2).\n"
+            "- Update three with [evidence](https://example.com/3).\n\n"
+            "## Watch next\n"
+            "- Signal one.\n"
+        )
+
+        result = validate_report_text.validate_report(report, "concise")
+
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("decorative_symbol_in_title", codes)
+
     def test_failed_report_validation_has_no_send_action(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -219,8 +292,7 @@ class ReportRunnerTests(unittest.TestCase):
             state_file = tmp_path / "current-topics.md"
             user = tmp_path / "USER.md"
             audit = tmp_path / "audit.log"
-            history = tmp_path / "report-history"
-            audio_history = tmp_path / "audio-history"
+            history = tmp_path / "history"
             work_dir = tmp_path / "run"
             report = tmp_path / "morning-report.md"
             source_manifest = tmp_path / "source-manifest.json"
@@ -264,7 +336,6 @@ class ReportRunnerTests(unittest.TestCase):
                     state=str(state_file),
                     user=str(user),
                     history_dir=str(history),
-                    audio_history_dir=str(audio_history),
                     audit_log=str(audit),
                     send_status="sent",
                     audio_status=None,
@@ -274,19 +345,47 @@ class ReportRunnerTests(unittest.TestCase):
             self.assertTrue(result["success"])
             self.assertEqual(result["phase"], "record-report")
             self.assertEqual(result["next_action"]["type"], "write_audio_script")
-            self.assertTrue(Path(result["report_history"]["run_dir"]).exists())
+            self.assertTrue(Path(result["history"]["run_dir"]).exists())
+            manifest = json.loads(Path(result["history"]["manifest_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["audio"]["status"], "pending")
+            self.assertEqual(manifest["source_collection"]["source_count"], 1)
+            state_after = common.load_run_state(work_dir)
+            self.assertEqual(state_after["phase"], "record-report")
+            self.assertTrue(state_after["can_continue"])
             self.assertTrue(audit.exists())
 
-    def test_record_audio_writes_separate_send_history(self):
+    def test_record_audio_updates_unified_history(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             work_dir = tmp_path / "run"
             audio_file = tmp_path / "morning-report.mp3"
             audio_script = tmp_path / "audio.txt"
-            audio_history = tmp_path / "audio-history"
+            history = tmp_path / "history"
+            run_dir = history / "2026-07-07" / "120000-test"
+            manifest_path = run_dir / "manifest.json"
             audit = tmp_path / "audit.log"
+            run_dir.mkdir(parents=True)
             audio_file.write_bytes(b"mp3-data" * 100)
             audio_script.write_text("audio script", encoding="utf-8")
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "success": True,
+                        "created_at": "2026-07-07T12:00:00+00:00",
+                        "updated_at": "2026-07-07T12:00:00+00:00",
+                        "run_id": "120000-test",
+                        "run_dir": str(run_dir),
+                        "topics": ["World Cup 2026"],
+                        "report": {"status": "sent", "file": str(run_dir / "report.md")},
+                        "audio": {"status": "pending"},
+                        "delivery": {"channel": "Telegram", "report_send_status": "sent", "audio_send_status": None},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             common.save_run_state(
                 work_dir,
                 {
@@ -302,7 +401,7 @@ class ReportRunnerTests(unittest.TestCase):
                         "file": str(audio_file),
                         "script_file": str(audio_script),
                     },
-                    "report_history": {"run_dir": str(tmp_path / "report-history-run")},
+                    "history": {"run_dir": str(run_dir), "manifest_path": str(manifest_path)},
                 },
             )
 
@@ -312,7 +411,7 @@ class ReportRunnerTests(unittest.TestCase):
                     audio_file=None,
                     audio_script_file=None,
                     audio_manifest=None,
-                    audio_history_dir=str(audio_history),
+                    history_dir=str(history),
                     audit_log=str(audit),
                     audio_status="sent",
                     send_status="sent",
@@ -321,9 +420,80 @@ class ReportRunnerTests(unittest.TestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual(result["phase"], "record-audio")
-            self.assertEqual(result["audio_history"]["audio_status"], "sent")
-            self.assertTrue(Path(result["audio_history"]["run_dir"], "manifest.json").exists())
+            self.assertEqual(result["audio_history"]["audio"]["status"], "sent")
+            self.assertEqual(result["audio_history"]["delivery"]["audio_send_status"], "sent")
+            self.assertTrue((run_dir / "morning-report.mp3").exists())
+            self.assertTrue((run_dir / "audio-script.txt").exists())
+            state_after = common.load_run_state(work_dir)
+            self.assertEqual(state_after["phase"], "complete")
+            self.assertFalse(state_after["can_continue"])
             self.assertTrue(audit.exists())
+
+    def test_record_audio_failure_updates_existing_history_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            work_dir = tmp_path / "run"
+            history = tmp_path / "history"
+            run_dir = history / "2026-07-07" / "120000-test"
+            manifest_path = run_dir / "manifest.json"
+            audit = tmp_path / "audit.log"
+            run_dir.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "success": True,
+                        "created_at": "2026-07-07T12:00:00+00:00",
+                        "updated_at": "2026-07-07T12:00:00+00:00",
+                        "run_id": "120000-test",
+                        "run_dir": str(run_dir),
+                        "topics": ["World Cup 2026"],
+                        "report": {"status": "sent", "file": str(run_dir / "report.md")},
+                        "audio": {"status": "pending"},
+                        "delivery": {"channel": "Telegram", "report_send_status": "sent", "audio_send_status": None},
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            common.save_run_state(
+                work_dir,
+                {
+                    "success": False,
+                    "phase": "generate-audio",
+                    "work_dir": str(work_dir),
+                    "config": {
+                        "report_language": "English",
+                        "audio_enabled": True,
+                    },
+                    "audio": {
+                        "status": "failed",
+                        "error": "tts failed",
+                    },
+                    "history": {"run_dir": str(run_dir), "manifest_path": str(manifest_path)},
+                },
+            )
+
+            result = record_audio_history.record_audio_phase(
+                Namespace(
+                    work_dir=str(work_dir),
+                    audio_file=None,
+                    audio_script_file=None,
+                    audio_manifest=None,
+                    history_dir=str(history),
+                    audit_log=str(audit),
+                    audio_status="failed",
+                    send_status="failure_notice_sent",
+                )
+            )
+
+            self.assertTrue(result["success"])
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["report"]["status"], "sent")
+            self.assertEqual(manifest["audio"]["status"], "failed")
+            self.assertEqual(manifest["audio"]["error"], "tts failed")
+            self.assertEqual(manifest["delivery"]["audio_send_status"], "failure_notice_sent")
 
 
 if __name__ == "__main__":

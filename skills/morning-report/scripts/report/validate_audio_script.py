@@ -10,9 +10,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MIN_WORDS = 540
-DEFAULT_MAX_WORDS = 900
-DEFAULT_WORDS_PER_MINUTE = 180
+# These three drive the whole audio phase: report/cli.py imports them as the defaults
+# for both `validate-audio` and `generate-audio`.
+#
+# The MP3 is sped up with ffmpeg `atempo=1.2` *after* TTS (cli.py `--speed` default),
+# so a `words / wpm` estimate taken at the raw TTS rate over-reports the delivered
+# length. Measured on the delivered MP3: 547 words -> 173.5s, i.e. 189 wpm. Using
+# wpm=180 let a 554-word script pass as "3.08 minutes" while the file was really 2.89
+# minutes, under the contracted 3-minute floor.
+#
+# At 189 wpm the contracted 3-5 minute band is 567-945 words; the gates sit inside it.
+DEFAULT_MIN_WORDS = 600
+DEFAULT_MAX_WORDS = 930
+DEFAULT_WORDS_PER_MINUTE = 189
 
 WORD_RE = re.compile(r"\b[\w']+\b", re.UNICODE)
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -21,7 +31,7 @@ MEDIA_RE = re.compile(r"\bMEDIA:", re.IGNORECASE)
 SOURCE_LABEL_RE = re.compile(r"\b(?:Source|Sources|Evidence):", re.IGNORECASE)
 CODE_FENCE_RE = re.compile(r"^\s*```", re.MULTILINE)
 TABLE_ROW_RE = re.compile(r"^\s*\|.+\|\s*$", re.MULTILINE)
-FILE_PATH_RE = re.compile(r"(?:^|\s)(?:/tmp/|skills/morning-report/|state/audio-history/|state/report-history/)\S*")
+FILE_PATH_RE = re.compile(r"(?:^|\s)(?:/tmp/|skills/morning-report/|state/history/)\S*")
 DEBUG_RE = re.compile(
     r"\b(?:traceback|stack trace|api key|token|provider log|manifest\.json|chunk-\d+|ffmpeg|curl exited)\b",
     re.IGNORECASE,

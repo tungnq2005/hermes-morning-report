@@ -18,7 +18,7 @@ from report.common import (
 from report.audit_events import DEFAULT_AUDIT_LOG
 from report.generate_audio_file import generate_audio_phase
 from report.record_audio_history import record_audio_phase
-from report.record_report_history import DEFAULT_AUDIO_HISTORY_DIR, DEFAULT_HISTORY_DIR, record_report_phase
+from report.record_report_history import DEFAULT_HISTORY_DIR, record_report_phase
 from report.source_collection import fetch_phase, search_phase
 from report.validate_audio_script import (
     DEFAULT_MAX_WORDS as AUDIO_MAX_WORDS,
@@ -74,7 +74,6 @@ def add_record_report_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state", default=str(DEFAULT_STATE))
     parser.add_argument("--user", default=str(DEFAULT_USER))
     parser.add_argument("--history-dir", default=str(DEFAULT_HISTORY_DIR))
-    parser.add_argument("--audio-history-dir", default=str(DEFAULT_AUDIO_HISTORY_DIR))
     parser.add_argument("--audit-log", default=str(DEFAULT_AUDIT_LOG))
     parser.add_argument("--send-status", default="sent")
     parser.add_argument("--audio-status")
@@ -84,7 +83,7 @@ def add_record_audio_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--audio-script-file")
     parser.add_argument("--audio-file")
     parser.add_argument("--audio-manifest")
-    parser.add_argument("--audio-history-dir", default=str(DEFAULT_AUDIO_HISTORY_DIR))
+    parser.add_argument("--history-dir", default=str(DEFAULT_HISTORY_DIR))
     parser.add_argument("--audit-log", default=str(DEFAULT_AUDIT_LOG))
     parser.add_argument("--send-status", default="sent")
     parser.add_argument("--audio-status")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show latest Morning Report report/audio history and audit events."""
+"""Show latest unified Morning Report history and audit events."""
 
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ from typing import Any
 REPORT_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = REPORT_DIR.parent
 SKILL_DIR = SCRIPTS_DIR.parent
-DEFAULT_REPORT_HISTORY = SKILL_DIR / "state" / "report-history"
-DEFAULT_AUDIO_HISTORY = SKILL_DIR / "state" / "audio-history"
+DEFAULT_HISTORY = SKILL_DIR / "state" / "history"
 DEFAULT_AUDIT_LOG = SKILL_DIR / "state" / "audit.log"
 
 
@@ -50,16 +49,14 @@ def audit_tail(path: Path, limit: int) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Show Morning Report history status")
-    parser.add_argument("--report-history", default=str(DEFAULT_REPORT_HISTORY))
-    parser.add_argument("--audio-history", default=str(DEFAULT_AUDIO_HISTORY))
+    parser.add_argument("--history", default=str(DEFAULT_HISTORY))
     parser.add_argument("--audit-log", default=str(DEFAULT_AUDIT_LOG))
     parser.add_argument("--limit", type=int, default=1)
     args = parser.parse_args()
 
     limit = max(1, args.limit)
     result = {
-        "report_history": latest_manifests(Path(args.report_history), limit),
-        "audio_history": latest_manifests(Path(args.audio_history), limit),
+        "history": latest_manifests(Path(args.history), limit),
         "audit_tail": audit_tail(Path(args.audit_log), limit),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

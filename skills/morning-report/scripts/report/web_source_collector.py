@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -21,6 +22,10 @@ from typing import Any
 DEFAULT_OUTPUT_DIR = Path("/tmp/morning-report-search-fetch-probe")
 DEFAULT_TARGET_FETCHED = 5
 DEFAULT_FRESHNESS_HOURS = 24
+FIRECRAWL_PROVIDER = "firecrawl"
+FIRECRAWL_MAX_ATTEMPTS = 2
+FIRECRAWL_RETRY_DELAY_SECONDS = 1
+FIRECRAWL_DISABLE_AFTER_RETRYABLE_FAILURES = 3
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -77,6 +82,7 @@ SOCIAL_HOSTS = {
     "twitter.com",
 }
 UNTRUSTED_RE = re.compile(r"<<<EXTERNAL_UNTRUSTED_CONTENT[^>]*>>>|<<<END_EXTERNAL_UNTRUSTED_CONTENT[^>]*>>>")
+AUTH_ERROR_RE = re.compile(r"(api[_ -]?key|unauthori[sz]ed|authentication|credential|secret)", re.I)
 
 
 class TextExtractor(HTMLParser):
@@ -116,8 +122,21 @@ def clean_external_text(value: Any) -> str:
     text = "" if value is None else str(value)
     text = UNTRUSTED_RE.sub("", text)
     text = text.replace("Source: Web Search", "")
+    text = text.replace("Source: Web Fetch", "")
     text = text.replace("---", "")
     return html.unescape(re.sub(r"\s+", " ", text).strip())
+
+
+def clean_fetched_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    text = UNTRUSTED_RE.sub("", text)
+    text = re.sub(r"(?im)^\s*Source:\s*Web Fetch\s*$", "", text)
+    text = re.sub(r"(?m)^\s*---\s*$", "", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s+", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def canonical_url(raw_url: str) -> str:
@@ -247,6 +266,207 @@ def search_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return results
 
 
+def new_fetch_state() -> dict[str, Any]:
+    return {
+        "firecrawl_disabled_for_run": False,
+        "firecrawl_disabled_reason": None,
+        "firecrawl_retryable_failure_streak": 0,
+    }
+
+
+def safe_status(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def firecrawl_failure(
+    reason: str,
+    *,
+    status_code: int | None = None,
+    retryable: bool = False,
+    fallback_allowed: bool = True,
+    disable_firecrawl_for_run: bool = False,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "ok": False,
+        "engine": "firecrawl",
+        "primary_engine": "firecrawl",
+        "fallback_used": False,
+        "reason": reason,
+        "retryable": retryable,
+        "fallback_allowed": fallback_allowed,
+        "disable_firecrawl_for_run": disable_firecrawl_for_run,
+    }
+    if status_code is not None:
+        result["status_code"] = status_code
+    if timeout_seconds is not None:
+        result["timeout_seconds"] = timeout_seconds
+    return result
+
+
+def classify_firecrawl_message(message: Any) -> dict[str, Any]:
+    text = str(message or "")
+    lower = text.lower()
+    if AUTH_ERROR_RE.search(text):
+        return firecrawl_failure("firecrawl_auth_unavailable", fallback_allowed=True, disable_firecrawl_for_run=True)
+    if "disabled" in lower or "no provider" in lower or "not available" in lower:
+        return firecrawl_failure("firecrawl_provider_unavailable", fallback_allowed=True, disable_firecrawl_for_run=True)
+    if "rate" in lower and "limit" in lower:
+        return firecrawl_failure("firecrawl_rate_limited", retryable=True, fallback_allowed=True)
+    if "timeout" in lower or "timed out" in lower:
+        return firecrawl_failure("firecrawl_timeout", retryable=True, fallback_allowed=True)
+    if "network" in lower or "econn" in lower or "socket" in lower:
+        return firecrawl_failure("firecrawl_network_error", retryable=True, fallback_allowed=True)
+    return firecrawl_failure("firecrawl_provider_error", retryable=True, fallback_allowed=True)
+
+
+def firecrawl_result_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    outputs = payload.get("outputs", [])
+    result: dict[str, Any] = {}
+    if isinstance(outputs, list) and outputs and isinstance(outputs[0], dict):
+        maybe_result = outputs[0].get("result", {})
+        if isinstance(maybe_result, dict):
+            result = maybe_result
+
+    if not result:
+        message = payload.get("error") or payload.get("message") or "missing_firecrawl_result"
+        failure = classify_firecrawl_message(message)
+        failure["reason"] = "firecrawl_provider_parse_error" if failure["reason"] == "firecrawl_provider_error" else failure["reason"]
+        return failure
+
+    status_code = safe_status(result.get("status") or result.get("status_code") or result.get("statusCode"))
+    if status_code == 404:
+        return firecrawl_failure("not_found", status_code=status_code, fallback_allowed=False)
+    if status_code == 401:
+        return firecrawl_failure(
+            "firecrawl_auth_unavailable",
+            status_code=status_code,
+            fallback_allowed=True,
+            disable_firecrawl_for_run=True,
+        )
+    if status_code == 403:
+        return firecrawl_failure("forbidden", status_code=status_code, fallback_allowed=True)
+    if status_code == 429:
+        return firecrawl_failure("firecrawl_rate_limited", status_code=status_code, retryable=True, fallback_allowed=True)
+    if status_code is not None and status_code >= 500:
+        return firecrawl_failure("firecrawl_server_error", status_code=status_code, retryable=True, fallback_allowed=True)
+
+    text = clean_fetched_text(result.get("text") or result.get("markdown") or result.get("content") or "")
+    message = result.get("error") or result.get("message")
+    if message and not text:
+        return classify_firecrawl_message(message)
+    if not text:
+        return firecrawl_failure("empty_text", status_code=status_code, retryable=True, fallback_allowed=True)
+
+    return {
+        "ok": True,
+        "engine": "firecrawl",
+        "primary_engine": "firecrawl",
+        "fallback_used": False,
+        "status_code": status_code,
+        "status": status_code,
+        "final_url": result.get("finalUrl") or result.get("final_url") or result.get("url"),
+        "title": clean_external_text(result.get("title")),
+        "truncated": bool(result.get("truncated")),
+        "raw_length": result.get("rawLength"),
+        "wrapped_length": result.get("wrappedLength"),
+        "text": text,
+    }
+
+
+def run_firecrawl_fetch(url: str, timeout: int) -> dict[str, Any]:
+    cmd = ["openclaw", "infer", "web", "fetch", "--provider", FIRECRAWL_PROVIDER, "--url", url, "--json"]
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return firecrawl_failure("firecrawl_timeout", retryable=True, fallback_allowed=True, timeout_seconds=timeout)
+
+    if completed.returncode != 0:
+        return classify_firecrawl_message(completed.stderr.strip() or completed.stdout.strip())
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return firecrawl_failure("firecrawl_provider_parse_error", retryable=True, fallback_allowed=True)
+    return firecrawl_result_from_payload(payload)
+
+
+def fetch_firecrawl_with_retry(url: str, timeout: int) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for attempt in range(1, FIRECRAWL_MAX_ATTEMPTS + 1):
+        attempt_timeout = timeout if attempt == 1 else min(timeout + 10, 30)
+        result = run_firecrawl_fetch(url, attempt_timeout)
+        result["attempt_count"] = attempt
+        if result.get("ok") or not result.get("retryable") or attempt == FIRECRAWL_MAX_ATTEMPTS:
+            return result
+        time.sleep(FIRECRAWL_RETRY_DELAY_SECONDS)
+    return result
+
+
+def fetch_python_url(
+    url: str,
+    timeout: int,
+    max_bytes: int,
+    *,
+    fallback_used: bool,
+    primary_fetch_error: str | None = None,
+) -> dict[str, Any]:
+    result = fetch_url(url, timeout, max_bytes)
+    result.update(
+        {
+            "engine": "python",
+            "primary_engine": "firecrawl",
+            "fallback_used": fallback_used,
+        }
+    )
+    if primary_fetch_error:
+        result["primary_fetch_error"] = primary_fetch_error
+        if not result.get("ok"):
+            result.setdefault("reason", primary_fetch_error)
+    return result
+
+
+def fetch_url_with_fallback(candidate: dict[str, Any], args: argparse.Namespace, fetch_state: dict[str, Any]) -> dict[str, Any]:
+    url = candidate["canonical_url"]
+    if fetch_state.get("firecrawl_disabled_for_run"):
+        return fetch_python_url(
+            url,
+            args.fetch_timeout,
+            args.max_fetch_bytes,
+            fallback_used=True,
+            primary_fetch_error=fetch_state.get("firecrawl_disabled_reason") or "firecrawl_disabled_for_run",
+        )
+
+    primary = fetch_firecrawl_with_retry(url, args.fetch_timeout)
+    if primary.get("ok"):
+        fetch_state["firecrawl_retryable_failure_streak"] = 0
+        return primary
+
+    if primary.get("disable_firecrawl_for_run"):
+        fetch_state["firecrawl_disabled_for_run"] = True
+        fetch_state["firecrawl_disabled_reason"] = primary.get("reason")
+    elif primary.get("retryable"):
+        fetch_state["firecrawl_retryable_failure_streak"] = int(fetch_state.get("firecrawl_retryable_failure_streak", 0)) + 1
+        if fetch_state["firecrawl_retryable_failure_streak"] >= FIRECRAWL_DISABLE_AFTER_RETRYABLE_FAILURES:
+            fetch_state["firecrawl_disabled_for_run"] = True
+            fetch_state["firecrawl_disabled_reason"] = primary.get("reason")
+    else:
+        fetch_state["firecrawl_retryable_failure_streak"] = 0
+
+    if not primary.get("fallback_allowed", True):
+        return primary
+
+    return fetch_python_url(
+        url,
+        args.fetch_timeout,
+        args.max_fetch_bytes,
+        fallback_used=True,
+        primary_fetch_error=primary.get("reason"),
+    )
+
+
 def query_plan(topic: str | None, queries: list[str], max_calls: int) -> list[str]:
     if queries:
         return queries[:max_calls]
@@ -295,15 +515,23 @@ def fetch_candidate(
     args: argparse.Namespace,
     output_dir: Path,
     source_index: int,
+    fetch_state: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     viable, reason = is_viable_url(candidate["canonical_url"], include_social=args.include_social)
     if not viable:
         return None, {**candidate, "reason": reason}
 
-    result = fetch_url(candidate["canonical_url"], args.fetch_timeout, args.max_fetch_bytes)
+    if fetch_state is None:
+        fetch_state = new_fetch_state()
+
+    result = fetch_url_with_fallback(candidate, args, fetch_state)
     text = result.pop("text", "")
     if not result.get("ok"):
-        return None, {**candidate, "reason": "fetch_failed", "fetch": result}
+        reason = result.get("reason")
+        rejected_reason = "fetch_failed"
+        if reason in {"firecrawl_auth_unavailable", "firecrawl_rate_limited", "firecrawl_timeout"}:
+            rejected_reason = str(reason)
+        return None, {**candidate, "reason": rejected_reason, "fetch": result}
     if len(text) < args.min_text_chars:
         return None, {
             **candidate,
@@ -336,6 +564,7 @@ def collect_sources_incrementally(
     candidates: list[dict[str, Any]] = []
     search_runs: list[dict[str, Any]] = []
     seen: set[str] = set()
+    fetch_state = new_fetch_state()
 
     for query in query_plan(args.topic, args.query or [], args.max_search_calls):
         payload = run_search(query, args.limit_per_call, args.provider, args.search_timeout)
@@ -370,7 +599,7 @@ def collect_sources_incrementally(
             candidates.append(candidate)
             run["new_candidate_count"] += 1
 
-            source, fetch_rejection = fetch_candidate(candidate, args, output_dir, len(sources) + 1)
+            source, fetch_rejection = fetch_candidate(candidate, args, output_dir, len(sources) + 1, fetch_state)
             if fetch_rejection is not None:
                 rejected.append(fetch_rejection)
                 continue

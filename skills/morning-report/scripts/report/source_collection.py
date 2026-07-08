@@ -217,8 +217,9 @@ def fetch_phase(args: argparse.Namespace) -> dict[str, Any]:
                 "instructions": [
                     "Read every fetched_sources text_file before writing.",
                     "Use the fetched sources as the evidence base.",
+                    "Use evidence links only from fetched_sources.url values; do not cite links found inside fetched pages.",
                     "Use configured report_language and report_style.",
-                    "Use compact evidence links in the text report.",
+                    "Use calm, non-sensational wording and no decorative emoji in the report title.",
                 ],
                 "references": [
                     "skills/morning-report/references/report-styles.md",

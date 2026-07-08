@@ -29,7 +29,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from tts_languages import resolve_tts_language  # noqa: E402
 
-DEFAULT_HISTORY_DIR = SKILL_DIR / "state" / "audio-history"
+DEFAULT_HISTORY_DIR = SKILL_DIR / "state" / "history"
 GOOGLE_TTS_URL = "https://translate.google.com/translate_tts"
 DEFAULT_CHUNK_LIMIT = 180
 DEFAULT_TIMEOUT_SECONDS = 45
@@ -384,7 +384,7 @@ def make_run_dir(history_dir: Path, text: str, now: datetime) -> Path:
 
 
 def write_manifest(run_dir: Path, manifest: dict[str, Any]) -> None:
-    (run_dir / "manifest.json").write_text(
+    (run_dir / "audio-manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -396,6 +396,7 @@ def generate_audio(
     lang: str,
     output: str | None = None,
     history_dir: str | Path = DEFAULT_HISTORY_DIR,
+    run_dir: str | Path | None = None,
     chunk_limit: int = DEFAULT_CHUNK_LIMIT,
     transport: str = "auto",
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
@@ -409,7 +410,7 @@ def generate_audio(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     created_at = now or datetime.now(timezone.utc)
-    run_dir: Path | None = None
+    history_run_dir: Path | None = None
     try:
         raw_text = read_input_text(text_file)
         text = normalize_text(raw_text)
@@ -442,9 +443,13 @@ def generate_audio(
                 "chunks": chunks,
             }
 
-        run_dir = make_run_dir(Path(history_dir), text, created_at)
-        (run_dir / "audio-script.txt").write_text(text + "\n", encoding="utf-8")
-        chunks_dir = run_dir / "chunks"
+        if run_dir is not None:
+            history_run_dir = Path(run_dir)
+            history_run_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            history_run_dir = make_run_dir(Path(history_dir), text, created_at)
+        (history_run_dir / "audio-script.txt").write_text(text + "\n", encoding="utf-8")
+        chunks_dir = history_run_dir / "chunks"
         chunks_dir.mkdir(parents=True, exist_ok=True)
 
         chunk_paths: list[Path] = []
@@ -463,16 +468,16 @@ def generate_audio(
             chunk_manifest.append(
                 {
                     "index": index,
-                    "file": str(chunk_path.relative_to(run_dir)),
+                    "file": str(chunk_path.relative_to(history_run_dir)),
                     "characters": len(chunk),
                     "bytes": size,
                     "text": chunk,
                 }
             )
 
-        history_output = run_dir / "morning-report.mp3"
-        merge_method = merge_audio(chunk_paths, history_output, run_dir)
-        speed_info = apply_audio_speed(history_output, speed, run_dir)
+        history_output = history_run_dir / "morning-report.mp3"
+        merge_method = merge_audio(chunk_paths, history_output, history_run_dir)
+        speed_info = apply_audio_speed(history_output, speed, history_run_dir)
         final_output = Path(output) if output else history_output
         if final_output.resolve() != history_output.resolve():
             final_output.parent.mkdir(parents=True, exist_ok=True)
@@ -492,18 +497,18 @@ def generate_audio(
             "char_count": len(text),
             **length,
             "chunk_count": len(chunks),
-            "history_dir": str(run_dir),
+            "history_dir": str(history_run_dir),
             "history_audio": str(history_output),
             "output": str(final_output),
             "output_bytes": final_output.stat().st_size,
             "chunks": chunk_manifest,
         }
-        write_manifest(run_dir, manifest)
+        write_manifest(history_run_dir, manifest)
         return manifest
     except Exception as exc:
-        if run_dir is not None:
+        if history_run_dir is not None:
             write_manifest(
-                run_dir,
+                history_run_dir,
                 {
                     "success": False,
                     "created_at": created_at.isoformat(),
@@ -524,7 +529,7 @@ def apply_audio_generation_result(
     from report.common import runner_command, save_run_state
 
     if manifest and manifest.get("success"):
-        manifest_path = str(Path(manifest["history_dir"]) / "manifest.json")
+        manifest_path = str(Path(manifest["history_dir"]) / "audio-manifest.json")
         audio.update(
             {
                 "status": "generated",
@@ -571,10 +576,12 @@ def generate_audio_phase(args: argparse.Namespace) -> dict[str, Any]:
     manifest: dict[str, Any] | None = None
     error = ""
     try:
+        history_run_dir = state.get("history", {}).get("run_dir")
         manifest = generate_audio(
             text_file=str(audio_script_file),
             output=str(output_file),
             lang=state["config"]["report_language"],
+            run_dir=history_run_dir,
             speed=args.speed,
             min_words=args.min_words,
             max_words=args.max_words,

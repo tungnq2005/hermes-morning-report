@@ -28,7 +28,7 @@ For internal model/provider fallback setup or troubleshooting, read `skills/morn
 
 - Runtime state: `skills/morning-report/state/current-topics.md` (local, git-ignored, created by setup)
 - User preference summary: `USER.md`
-- Runtime artifacts: `skills/morning-report/state/audio-history/`, `skills/morning-report/state/report-history/`, `skills/morning-report/state/audit.log`
+- Runtime artifacts: `skills/morning-report/state/history/`, `skills/morning-report/state/audit.log`
 - Helper scripts: `setup/run.py`, `report/run.py`, `report/source_collection.py`, `report/web_source_collector.py`, `report/validate_report_text.py`, `report/validate_audio_script.py`, `report/generate_audio_file.py`, `report/record_report_history.py`, `report/record_audio_history.py`, `report/history_status.py`, `report/audit_events.py`, `update/run.py`, `config_status.py`, `report_style.py`, `tts_languages.py`, `update_config.py`
 
 Do not manually rewrite runtime state, report history, audit log, or audio artifacts when a helper script can perform the update.

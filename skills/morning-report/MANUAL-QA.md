@@ -83,6 +83,5 @@ python3 skills/morning-report/scripts/setup/run.py --compact
 ## Artifacts
 
 - [ ] `state/audit.log` gains an event after setup, topic updates, settings updates, or report recording.
-- [ ] `state/report-history/` stores the report and manifest for completed or prepared runs.
-- [ ] `state/audio-history/` stores audio chunks, MP3, and manifest only when audio generation runs.
+- [ ] `state/history/` stores one folder per run with report, source manifest, audio artifacts, and manifest.
 - [ ] Runtime artifacts remain ignored by git.

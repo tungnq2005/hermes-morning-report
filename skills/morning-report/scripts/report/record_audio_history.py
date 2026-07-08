@@ -1,10 +1,11 @@
-"""Record audio history after Telegram media/notice send succeeds."""
+"""Update unified Morning Report history after audio delivery."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,11 +13,12 @@ from typing import Any
 
 REPORT_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = REPORT_DIR.parent
+SKILL_DIR = SCRIPTS_DIR.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from report.audit_events import append_report_audit_event  # noqa: E402
-from report.common import load_run_state, save_run_state, state_path
+from report.common import load_run_state, save_run_state  # noqa: E402
 
 
 def utc_now() -> datetime:
@@ -33,16 +35,26 @@ def sha256_file(path: Path) -> str | None:
     return digest.hexdigest()
 
 
-def make_sent_dir(history_dir: Path, status: str, now: datetime) -> Path:
-    date_dir = history_dir / "sent" / now.strftime("%Y-%m-%d")
-    base = f"{now.strftime('%H%M%S')}-{status}"
-    candidate = date_dir / base
-    suffix = 1
-    while candidate.exists():
-        suffix += 1
-        candidate = date_dir / f"{base}-{suffix}"
-    candidate.mkdir(parents=True, exist_ok=False)
-    return candidate
+def load_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"JSON file must contain an object: {path}")
+    return data
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def copy_if_present(src: Path | None, dest: Path) -> str | None:
+    if src is None:
+        return None
+    if not src.exists():
+        raise FileNotFoundError(f"missing file: {src}")
+    if src.resolve(strict=False) != dest.resolve(strict=False):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+    return str(dest)
 
 
 def load_optional_json(path: str | None) -> dict[str, Any] | None:
@@ -66,6 +78,21 @@ def inferred_audio_status(state: dict[str, Any], explicit: str | None) -> str:
     return "not_recorded"
 
 
+def history_paths(state: dict[str, Any], history_dir: Path) -> tuple[Path, Path]:
+    run_dir_raw = state.get("history", {}).get("run_dir") or state.get("report_history", {}).get("run_dir")
+    if not run_dir_raw:
+        raise FileNotFoundError("missing unified history run_dir in run state")
+    run_dir = Path(run_dir_raw)
+    if not run_dir.exists():
+        raise FileNotFoundError(f"missing unified history run_dir: {run_dir}")
+    if not run_dir.is_relative_to(history_dir.resolve(strict=False)) and not run_dir.is_absolute():
+        run_dir = history_dir / run_dir
+    manifest_path = Path(state.get("history", {}).get("manifest_path") or run_dir / "manifest.json")
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing unified history manifest: {manifest_path}")
+    return run_dir, manifest_path
+
+
 def record_audio_phase(args: argparse.Namespace) -> dict[str, Any]:
     work_dir = Path(args.work_dir)
     state = load_run_state(work_dir)
@@ -79,27 +106,30 @@ def record_audio_phase(args: argparse.Namespace) -> dict[str, Any]:
     if audio_status == "sent" and (audio_file is None or not audio_file.exists()):
         raise FileNotFoundError("audio_status is sent but audio file is missing")
 
-    run_dir = make_sent_dir(Path(args.audio_history_dir), audio_status, now)
+    run_dir, manifest_path = history_paths(state, Path(args.history_dir))
+    manifest = load_json(manifest_path)
+
+    local_audio_script = copy_if_present(audio_script_file, run_dir / "audio-script.txt")
+    local_audio_file = copy_if_present(audio_file, run_dir / "morning-report.mp3") if audio_file else None
     generation_manifest = load_optional_json(audio_manifest_path)
-    manifest = {
-        "success": True,
-        "created_at": now.isoformat(),
-        "run_dir": str(run_dir),
-        "history_scope": "audio_sent",
-        "audio_status": audio_status,
-        "send_status": args.send_status,
-        "audio_file": str(audio_file) if audio_file else None,
-        "audio_file_exists": bool(audio_file and audio_file.exists()),
-        "audio_file_bytes": audio_file.stat().st_size if audio_file and audio_file.exists() else None,
-        "audio_sha256": sha256_file(audio_file) if audio_file else None,
-        "audio_script_file": str(audio_script_file) if audio_script_file else None,
-        "audio_manifest_source_file": audio_manifest_path,
-        "generation_manifest": generation_manifest,
-        "report_history_file": state.get("report_history", {}).get("manifest_path")
-        or state.get("report_history", {}).get("run_dir"),
-        "run_state_file": str(state_path(work_dir)),
-        "config": state.get("config", {}),
+    if audio_manifest_path:
+        copy_if_present(Path(audio_manifest_path), run_dir / "audio-manifest.json")
+
+    manifest["updated_at"] = now.isoformat()
+    manifest["audio"] = {
+        "status": audio_status,
+        "file": local_audio_file,
+        "file_exists": bool(local_audio_file and Path(local_audio_file).exists()),
+        "file_bytes": Path(local_audio_file).stat().st_size if local_audio_file and Path(local_audio_file).exists() else None,
+        "sha256": sha256_file(Path(local_audio_file)) if local_audio_file else None,
+        "script_file": local_audio_script,
+        "manifest_file": str(run_dir / "audio-manifest.json") if (run_dir / "audio-manifest.json").exists() else None,
+        "generation": generation_manifest,
+        "error": audio.get("error"),
     }
+    delivery = manifest.setdefault("delivery", {})
+    delivery["audio_send_status"] = args.send_status
+
     audit_record = append_report_audit_event(
         "audio_history_recorded",
         by="record_audio_history.py",
@@ -108,15 +138,19 @@ def record_audio_phase(args: argparse.Namespace) -> dict[str, Any]:
             "run_dir": str(run_dir),
             "audio_status": audio_status,
             "send_status": args.send_status,
-            "audio_file": str(audio_file) if audio_file else None,
+            "audio_file": local_audio_file,
         },
     )
     manifest["audit_record"] = audit_record
-    (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    write_json(manifest_path, manifest)
 
+    state["history"] = {
+        "run_dir": str(run_dir),
+        "manifest_path": str(manifest_path),
+    }
+    state["success"] = True
+    state["phase"] = "complete"
+    state["can_continue"] = False
     state["audio_history"] = manifest
     state["next_action"] = {
         "type": "done",
@@ -130,6 +164,7 @@ def record_audio_phase(args: argparse.Namespace) -> dict[str, Any]:
         "work_dir": str(work_dir),
         "config": state.get("config", {}),
         "audio": audio,
+        "history": state["history"],
         "audio_history": manifest,
         "next_action": state["next_action"],
     }

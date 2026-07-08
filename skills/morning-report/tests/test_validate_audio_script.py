@@ -23,14 +23,31 @@ class ValidateAudioTests(unittest.TestCase):
             )
 
     def test_valid_script_passes_word_count_and_hygiene(self):
-        text = " ".join(f"word{i}" for i in range(560))
+        # 620 words sits inside the 600-930 default band, which maps to the
+        # contracted 3-5 minute MP3 at the measured 189 wpm delivery rate.
+        text = " ".join(f"word{i}" for i in range(620))
         result = self.run_validator(text)
         data = json.loads(result.stdout)
 
         self.assertEqual(result.returncode, 0)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["word_count"], 560)
+        self.assertEqual(data["word_count"], 620)
         self.assertEqual(data["issues"], [])
+
+    def test_word_count_band_matches_three_to_five_minute_contract(self):
+        just_under = self.run_validator(" ".join(f"word{i}" for i in range(599)))
+        self.assertNotEqual(just_under.returncode, 0)
+        self.assertIn("under_min_words", [i["code"] for i in json.loads(just_under.stdout)["issues"]])
+
+        just_over = self.run_validator(" ".join(f"word{i}" for i in range(931)))
+        self.assertNotEqual(just_over.returncode, 0)
+        self.assertIn("over_max_words", [i["code"] for i in json.loads(just_over.stdout)["issues"]])
+
+        # 600 words / 189 wpm = 3.17 min; 930 / 189 = 4.92 min -- both inside 3-5.
+        low = json.loads(self.run_validator(" ".join(f"word{i}" for i in range(600))).stdout)
+        high = json.loads(self.run_validator(" ".join(f"word{i}" for i in range(930))).stdout)
+        self.assertGreaterEqual(low["estimated_minutes"], 3.0)
+        self.assertLessEqual(high["estimated_minutes"], 5.0)
 
     def test_short_script_fails(self):
         result = self.run_validator("too short")
@@ -42,7 +59,7 @@ class ValidateAudioTests(unittest.TestCase):
 
     def test_hygiene_failures_are_reported(self):
         text = (
-            " ".join(f"word{i}" for i in range(560))
+            " ".join(f"word{i}" for i in range(620))
             + " Source: Example. https://example.com MEDIA:/tmp/morning-report.mp3 "
             + "This shockingly surged after ffmpeg wrote manifest.json."
         )

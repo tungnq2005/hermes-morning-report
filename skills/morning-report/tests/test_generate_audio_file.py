@@ -144,6 +144,35 @@ class GenerateAudioTests(unittest.TestCase):
             self.assertFalse((run_dir / "morning-report-speed-adjusted.mp3").exists())
             self.assertFalse((run_dir / ".morning-report-speed-adjusted.tmp.mp3").exists())
 
+    def test_generate_audio_writes_audio_manifest_inside_existing_run_dir(self):
+        module = load_generate_audio_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            run_dir = tmp_path / "history" / "2026-07-07" / "120000-test"
+            text_file = tmp_path / "audio.txt"
+            output_file = tmp_path / "morning-report.mp3"
+            text_file.write_text("Good morning. This is a short audio test.", encoding="utf-8")
+
+            def fake_chunk_audio(text, lang, output, transport, timeout, retries):
+                output.write_bytes(b"chunk-audio" * 40)
+                return output.stat().st_size
+
+            with mock.patch.object(module, "generate_chunk_audio", side_effect=fake_chunk_audio):
+                manifest = module.generate_audio(
+                    text_file=str(text_file),
+                    lang="English",
+                    output=str(output_file),
+                    run_dir=run_dir,
+                    speed=1.0,
+                )
+
+            self.assertEqual(Path(manifest["history_dir"]), run_dir)
+            self.assertTrue((run_dir / "audio-manifest.json").exists())
+            self.assertFalse((run_dir / "manifest.json").exists())
+            self.assertTrue((run_dir / "audio-script.txt").exists())
+            self.assertTrue((run_dir / "chunks" / "chunk-001.mp3").exists())
+            self.assertTrue(output_file.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
