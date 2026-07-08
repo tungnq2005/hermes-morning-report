@@ -32,6 +32,25 @@ SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # file targets + "direct to cloud" targets (gdoc/gslides create drafts in Google Workspace)
 TARGETS = ("pptx", "docx", "pdf", "md", "gdoc", "gslides")
 
+# python-docx's default template leaves body text on the theme's minor font, which is
+# Cambria. Cambria ships with Office but not with Linux, so the `pdf` target -- which
+# renders through headless LibreOffice -- substituted a serif face that has no
+# precomposed Vietnamese glyphs. Diacritics were then drawn as separate combining
+# glyphs with their own advance width: "so voi" rendered as "so vo i" with the tone
+# mark beside the letter instead of above it.
+#
+# Calibri is the safe pin: Word and PowerPoint have it, and LibreOffice maps it to the
+# metric-compatible Carlito, which does carry precomposed Vietnamese (U+1EA1 etc.).
+# The pptx target already renders correctly because its theme pins both the major and
+# the minor font to Calibri.
+DOCX_FONT = "Calibri"
+# python-docx's numbering.xml draws bullets as U+F0B7 -- a private-use codepoint that
+# only exists in the Symbol font. Linux maps Symbol to OpenSymbol, which has nothing at
+# F0B7, so every bullet rendered as a tofu box. U+2022 is the real BULLET codepoint and
+# lives in the body font.
+SYMBOL_BULLET = "\uf0b7"   # private-use codepoint, Symbol font only
+UNICODE_BULLET = "\u2022"  # BULLET, present in Calibri/Carlito
+
 
 def new_run_dir(outdir: str | None) -> str:
     if outdir:
@@ -44,20 +63,68 @@ def new_run_dir(outdir: str | None) -> str:
     return run
 
 
+def _pin_font(style, name: str) -> None:
+    """Pin a style to a literal font, overriding the template's theme reference.
+
+    Setting only ``style.font.name`` leaves the ``w:asciiTheme``/``w:hAnsiTheme``
+    attributes in place, and both Word and LibreOffice prefer the theme reference
+    over the literal one. The theme attributes have to go.
+    """
+    from docx.oxml.ns import qn
+
+    style.font.name = name
+    rpr = style.element.get_or_add_rPr()
+    rfonts = rpr.get_or_add_rFonts()
+    for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+        rfonts.set(qn("w:" + attr), name)
+    for attr in ("asciiTheme", "hAnsiTheme", "cstheme", "eastAsiaTheme"):
+        theme_attr = qn("w:" + attr)
+        if theme_attr in rfonts.attrib:
+            del rfonts.attrib[theme_attr]
+
+
+def _fix_bullet_glyph(document, name: str) -> None:
+    """Swap the Symbol-font private-use bullet for a real U+2022 in the body font."""
+    from docx.oxml.ns import qn
+
+    try:
+        numbering = document.part.numbering_part.element
+    except (AttributeError, KeyError, NotImplementedError):
+        return
+    for lvl_text in numbering.iter(qn("w:lvlText")):
+        if lvl_text.get(qn("w:val")) == SYMBOL_BULLET:
+            lvl_text.set(qn("w:val"), UNICODE_BULLET)
+    for rfonts in numbering.iter(qn("w:rFonts")):
+        if rfonts.get(qn("w:ascii")) == "Symbol":
+            for attr in ("ascii", "hAnsi", "cs"):
+                rfonts.set(qn("w:" + attr), name)
+
+
 def build_docx(doc: dict, sections: list[dict], out_path: str) -> None:
     import docx
     from docx.shared import Pt, RGBColor
 
     d = docx.Document()
+    for style_name in ("Normal", "Title", "Heading 1", "List Bullet"):
+        try:
+            _pin_font(d.styles[style_name], DOCX_FONT)
+        except KeyError:
+            pass
+    _fix_bullet_glyph(d, DOCX_FONT)
+
     h = d.add_heading(doc["title"], level=0)
     for run in h.runs:
+        run.font.name = DOCX_FONT
         run.font.color.rgb = RGBColor(0x1F, 0x3A, 0x5F)
     for sec in sections:
         if sec["title"]:
-            d.add_heading(sec["title"], level=1)
+            heading = d.add_heading(sec["title"], level=1)
+            for run in heading.runs:
+                run.font.name = DOCX_FONT
         for item in sec["items"]:
             p = d.add_paragraph(item, style="List Bullet")
             for run in p.runs:
+                run.font.name = DOCX_FONT
                 run.font.size = Pt(11)
     d.save(out_path)
 

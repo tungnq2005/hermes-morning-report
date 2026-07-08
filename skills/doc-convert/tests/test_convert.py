@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -114,6 +115,40 @@ class BuildTests(unittest.TestCase):
         stats = build_pptx.build(doc, sections, out, min_slides=5)
         self.assertTrue(os.path.exists(out))
         self.assertGreaterEqual(stats["slides"], 5)
+
+    def test_built_docx_pins_font_and_bullet_glyph(self):
+        """Guard the two defects that broke Vietnamese in the docx and pdf targets.
+
+        Body text used to inherit the theme's minor font (Cambria), which LibreOffice
+        replaced with a serif face lacking precomposed Vietnamese, and bullets used the
+        Symbol-only codepoint U+F0B7, which rendered as a tofu box.
+        """
+        import zipfile
+
+        import convert
+
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        out = os.path.join(self.tmp, "built.docx")
+        convert.build_docx(doc, doc_io.outline_sections(doc), out)
+
+        with zipfile.ZipFile(out) as z:
+            styles = z.read("word/styles.xml").decode("utf-8")
+            numbering = z.read("word/numbering.xml").decode("utf-8")
+
+        for style_id in ("Normal", "ListBullet", "Heading1", "Title"):
+            match = re.search(r'<w:style [^>]*w:styleId="%s".*?</w:style>' % style_id, styles, re.S)
+            self.assertIsNotNone(match, f"style {style_id} missing")
+            rfonts = re.search(r"<w:rFonts([^/>]*)/>", match.group(0))
+            self.assertIsNotNone(rfonts, f"style {style_id} has no rFonts")
+            self.assertIn('w:ascii="Calibri"', rfonts.group(1), f"style {style_id} not pinned")
+            # a surviving theme reference would win over the literal font
+            self.assertNotIn("Theme=", rfonts.group(1), f"style {style_id} still points at the theme")
+
+        self.assertNotIn(convert.SYMBOL_BULLET, numbering, "Symbol-font bullet survived")
+        self.assertIn(convert.UNICODE_BULLET, numbering, "U+2022 bullet missing")
+        self.assertNotIn('w:ascii="Symbol"', numbering, "numbering still asks for the Symbol font")
 
     def test_convert_cli_docx_to_pptx(self):
         src = os.path.join(self.tmp, "sample.docx")
