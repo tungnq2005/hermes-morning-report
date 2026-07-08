@@ -23,6 +23,9 @@ from config_status import DEFAULT_STATE, DEFAULT_USER, build_status  # noqa: E40
 DEFAULT_WORK_DIR = Path("/tmp/morning-report-run")
 DEFAULT_REPORT_FILE = Path("/tmp/morning-report.md")
 DEFAULT_AUDIO_SCRIPT_FILE = Path("/tmp/morning-report-audio.txt")
+# The MP3 is sent to Telegram as a MEDIA attachment, and the gateway only allows
+# media paths inside the workspace -- a /tmp path is rejected with
+# "Local media path is not under an allowed directory". Keep it under the skill.
 DEFAULT_AUDIO_FILE = SKILL_DIR / "state" / "morning-report.mp3"
 DEFAULT_TARGET_FETCHED = 5
 RUNNER_SCRIPT = "skills/morning-report/scripts/report/run.py"
