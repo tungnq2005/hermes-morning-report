@@ -2,7 +2,7 @@
 
 Trợ lý của bạn hoạt động hoàn toàn qua **chat Telegram** với bot. Bạn không cần đụng đến server, code hay cài đặt gì cả — chỉ cần nhắn tin bằng tiếng Việt tự nhiên.
 
-Bot: **@tungnq_bot** (mở Telegram, tìm tên này, bấm Start).
+Bot: **@your_bot** (mở Telegram, tìm tên này, bấm Start).
 
 Trợ lý có 2 khả năng chính:
 

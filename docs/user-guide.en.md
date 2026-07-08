@@ -2,7 +2,7 @@
 
 Your assistant works entirely through **Telegram chat** with a bot. You never touch the server, code, or any settings — just message it in plain language.
 
-Bot: **@tungnq_bot** (open Telegram, search this name, press Start).
+Bot: **@your_bot** (open Telegram, search this name, press Start).
 
 The assistant has two main capabilities:
 

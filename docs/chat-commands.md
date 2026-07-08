@@ -1,7 +1,7 @@
 # Chat Command Quick Reference / Bảng lệnh nhanh
 
-One page. Message **@tungnq_bot** in natural language — these are examples, not exact syntax.
-Một trang. Nhắn **@tungnq_bot** bằng ngôn ngữ tự nhiên — đây là ví dụ, không phải cú pháp cứng.
+One page. Message **@your_bot** in natural language — these are examples, not exact syntax.
+Một trang. Nhắn **@your_bot** bằng ngôn ngữ tự nhiên — đây là ví dụ, không phải cú pháp cứng.
 
 ---
 

@@ -1,48 +1,45 @@
 #!/usr/bin/env bash
-# Bước 11: bootstrap CẢ HAI skill (morning-report D1 + doc-convert D2) vào workspace + test.
+# Bước 06: cài CẢ HAI skill (morning-report D1 + doc-convert D2) vào workspace + test.
+#
+# Nguồn skill là CHÍNH REPO NÀY. Trước đây script clone một repo upstream khác và
+# rsync hai thư mục skills-local/ + overlays/ không còn tồn tại, nên client chạy
+# setup_all.sh sẽ nhận D1 cũ và không có D2.
 set -euo pipefail
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # <repo>/setup
+REPO_ROOT="$(cd "$DIR/.." && pwd)"                       # <repo>
 # shellcheck disable=SC1091
 source "$DIR/config.env"
 
-REPO_DIR="$OC_HOME/openclaw-workspace-repo"
 WORKSPACE="$OC_HOME/.openclaw/workspace"
 
-cd "$OC_HOME"
+echo "[1] Nguồn skill: $REPO_ROOT/skills"
+for s in morning-report doc-convert; do
+  [[ -d "$REPO_ROOT/skills/$s" ]] || { echo "THIẾU skills/$s trong repo"; exit 1; }
+done
 
-echo "[1] Lấy skill morning-report (D1) từ repo upstream..."
-if [[ -d "$REPO_DIR/.git" ]]; then
-  git -C "$REPO_DIR" pull
-else
-  git clone "$OC_REPO_URL" "$REPO_DIR"
-fi
-
+echo "[2] Copy skills + AGENTS.md vào workspace..."
 mkdir -p "$WORKSPACE/skills"
-echo "[2] Copy skills + AGENTS.md từ repo..."
-rsync -a "$REPO_DIR/skills/" "$WORKSPACE/skills/"
-rsync -a "$REPO_DIR/AGENTS.md" "$WORKSPACE/AGENTS.md"
-
-echo "[3] Copy skill doc-convert (D2, đóng gói local)..."
-rsync -a "$DIR/skills-local/" "$WORKSPACE/skills/"
-
-echo "[4] Áp bản vá overlay (fix media-path trong audio-runtime.md)..."
-if [[ -d "$DIR/overlays" ]]; then
-  rsync -a "$DIR/overlays/" "$WORKSPACE/skills/"
-fi
+# state/ là runtime của từng máy (token Google, lịch sử run) — không bao giờ đè.
+rsync -a --exclude 'state/' --exclude '__pycache__/' \
+  "$REPO_ROOT/skills/" "$WORKSPACE/skills/"
+rsync -a "$REPO_ROOT/AGENTS.md" "$WORKSPACE/AGENTS.md"
 
 cd "$WORKSPACE"
+
 echo
-echo "[5] Unit test morning-report (D1)..."
+echo "[3] Unit test morning-report (D1)..."
 python3 -m unittest discover skills/morning-report/tests
+
 echo
-echo "[6] Unit test doc-convert (D2)..."
+echo "[4] Unit test doc-convert (D2)..."
 python3 -m unittest discover skills/doc-convert/tests
 
 echo
-echo "[7] Preflight D1..."
-python3 skills/morning-report/scripts/preflight.py --compact
+echo "[5] Readiness D1..."
+python3 skills/morning-report/scripts/setup/run.py --compact
+
 echo
-echo "[8] Preflight D2..."
+echo "[6] Preflight D2..."
 python3 skills/doc-convert/scripts/preflight.py --compact
 
 echo

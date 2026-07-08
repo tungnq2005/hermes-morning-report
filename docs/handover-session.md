@@ -6,7 +6,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 **Chuẩn bị trước / Prep beforehand**
 - Gateway đang chạy trên VPS (`healthcheck.sh` → `ok:true`).
 - Đã đăng nhập dashboard sẵn trên trình duyệt (khỏi dán token lúc demo).
-- Mở sẵn Telegram với `@tungnq_bot`.
+- Mở sẵn Telegram với `@your_bot`.
 - In/mở sẵn `chat-commands.md` cho khách.
 
 ---
