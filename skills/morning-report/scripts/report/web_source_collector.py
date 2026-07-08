@@ -22,6 +22,8 @@ from typing import Any
 DEFAULT_OUTPUT_DIR = Path("/tmp/morning-report-search-fetch-probe")
 DEFAULT_TARGET_FETCHED = 5
 DEFAULT_FRESHNESS_HOURS = 24
+DEFAULT_SEARCH_PROVIDER = "brave"
+DEFAULT_SEARCH_FALLBACK_PROVIDER = "exa"
 FIRECRAWL_PROVIDER = "firecrawl"
 FIRECRAWL_MAX_ATTEMPTS = 2
 FIRECRAWL_RETRY_DELAY_SECONDS = 1
@@ -83,6 +85,13 @@ SOCIAL_HOSTS = {
 }
 UNTRUSTED_RE = re.compile(r"<<<EXTERNAL_UNTRUSTED_CONTENT[^>]*>>>|<<<END_EXTERNAL_UNTRUSTED_CONTENT[^>]*>>>")
 AUTH_ERROR_RE = re.compile(r"(api[_ -]?key|unauthori[sz]ed|authentication|credential|secret)", re.I)
+
+
+def normalize_provider(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 class TextExtractor(HTMLParser):
@@ -250,10 +259,124 @@ def run_search(query: str, limit: int, provider: str | None, timeout: int) -> di
     cmd = ["openclaw", "infer", "web", "search", "--query", query, "--limit", str(limit), "--json"]
     if provider:
         cmd.extend(["--provider", provider])
-    completed = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"search timed out after {timeout}s")
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or f"search failed: {query}")
-    return json.loads(completed.stdout)
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"search returned invalid JSON: {exc}") from exc
+
+
+def classify_search_error(message: Any) -> dict[str, Any]:
+    text = str(message or "")
+    lower = text.lower()
+    reason = "search_provider_error"
+    disable_primary_for_run = False
+    if AUTH_ERROR_RE.search(text):
+        reason = "search_auth_unavailable"
+        disable_primary_for_run = True
+    elif any(marker in lower for marker in ["quota", "rate limit", "ratelimit", "monthly limit", "limit exceeded"]):
+        reason = "search_rate_limited"
+        disable_primary_for_run = True
+    elif "disabled" in lower or "no provider" in lower or "not available" in lower:
+        reason = "search_provider_unavailable"
+        disable_primary_for_run = True
+    elif "timeout" in lower or "timed out" in lower:
+        reason = "search_timeout"
+    elif "network" in lower or "econn" in lower or "socket" in lower:
+        reason = "search_network_error"
+    elif "invalid json" in lower:
+        reason = "search_provider_parse_error"
+    return {
+        "reason": reason,
+        "message": text,
+        "disable_primary_for_run": disable_primary_for_run,
+    }
+
+
+def search_error_brief(error: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not error:
+        return None
+    reason = error.get("reason")
+    return {"reason": reason} if reason else None
+
+
+def new_search_state(primary_provider: str | None, fallback_provider: str | None) -> dict[str, Any]:
+    primary = normalize_provider(primary_provider)
+    fallback = normalize_provider(fallback_provider)
+    if fallback == primary:
+        fallback = None
+    return {
+        "primary_provider": primary,
+        "fallback_provider": fallback,
+        "primary_disabled_for_run": False,
+        "primary_disabled_reason": None,
+    }
+
+
+def run_search_with_fallback(
+    query: str,
+    limit: int,
+    timeout: int,
+    search_state: dict[str, Any],
+) -> dict[str, Any]:
+    primary = search_state.get("primary_provider")
+    fallback = search_state.get("fallback_provider")
+
+    if search_state.get("primary_disabled_for_run"):
+        if not fallback:
+            raise RuntimeError(f"primary search provider disabled: {search_state.get('primary_disabled_reason')}")
+        payload = run_search(query, limit, fallback, timeout)
+        return {
+            "payload": payload,
+            "provider_used": fallback,
+            "primary_provider": primary,
+            "fallback_provider": fallback,
+            "fallback_used": True,
+            "primary_search_error": search_error_brief(search_state.get("primary_disabled_reason")),
+            "primary_disabled_for_run": True,
+        }
+
+    try:
+        payload = run_search(query, limit, primary, timeout)
+        return {
+            "payload": payload,
+            "provider_used": primary,
+            "primary_provider": primary,
+            "fallback_provider": fallback,
+            "fallback_used": False,
+            "primary_search_error": None,
+            "primary_disabled_for_run": False,
+        }
+    except Exception as exc:
+        primary_error = classify_search_error(exc)
+        if primary_error.get("disable_primary_for_run"):
+            search_state["primary_disabled_for_run"] = True
+            search_state["primary_disabled_reason"] = primary_error
+        if not fallback:
+            raise RuntimeError(f"search failed with {primary or 'default'}: {primary_error['message']}") from exc
+
+    try:
+        payload = run_search(query, limit, fallback, timeout)
+    except Exception as fallback_exc:
+        fallback_error = classify_search_error(fallback_exc)
+        raise RuntimeError(
+            f"primary search failed ({primary_error['reason']}); "
+            f"fallback search failed ({fallback_error['reason']}): {fallback_error['message']}"
+        ) from fallback_exc
+    return {
+        "payload": payload,
+        "provider_used": fallback,
+        "primary_provider": primary,
+        "fallback_provider": fallback,
+        "fallback_used": True,
+        "primary_search_error": search_error_brief(primary_error),
+        "primary_disabled_for_run": bool(search_state.get("primary_disabled_for_run")),
+    }
 
 
 def search_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -488,6 +611,10 @@ def search_candidate(
     query: str,
     *,
     include_social: bool,
+    search_provider: str | None = None,
+    primary_search_provider: str | None = None,
+    search_fallback_used: bool = False,
+    primary_search_error: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     raw_url = str(item.get("url", "")).strip()
     if not raw_url:
@@ -506,6 +633,10 @@ def search_candidate(
         "site_name": clean_external_text(item.get("siteName") or item.get("site_name")),
         "search_published_at": published_at,
         "search_published_source": published_source,
+        "search_provider": search_provider,
+        "primary_search_provider": primary_search_provider,
+        "search_fallback_used": search_fallback_used,
+        "primary_search_error": primary_search_error,
         "host": hostname(canonical),
     }, None
 
@@ -565,12 +696,20 @@ def collect_sources_incrementally(
     search_runs: list[dict[str, Any]] = []
     seen: set[str] = set()
     fetch_state = new_fetch_state()
+    search_state = new_search_state(args.provider, getattr(args, "fallback_provider", None))
 
     for query in query_plan(args.topic, args.query or [], args.max_search_calls):
-        payload = run_search(query, args.limit_per_call, args.provider, args.search_timeout)
+        search_result = run_search_with_fallback(query, args.limit_per_call, args.search_timeout, search_state)
+        payload = search_result["payload"]
         items = search_results(payload)
         run = {
             "query": query,
+            "provider_used": search_result["provider_used"],
+            "primary_provider": search_result["primary_provider"],
+            "fallback_provider": search_result["fallback_provider"],
+            "fallback_used": search_result["fallback_used"],
+            "primary_search_error": search_result["primary_search_error"],
+            "primary_disabled_for_run": search_result["primary_disabled_for_run"],
             "result_count": len(items),
             "new_candidate_count": 0,
             "fetched_source_count_before": len(sources),
@@ -578,7 +717,15 @@ def collect_sources_incrementally(
         }
 
         for item in items:
-            candidate, rejection = search_candidate(item, query, include_social=args.include_social)
+            candidate, rejection = search_candidate(
+                item,
+                query,
+                include_social=args.include_social,
+                search_provider=search_result["provider_used"],
+                primary_search_provider=search_result["primary_provider"],
+                search_fallback_used=bool(search_result["fallback_used"]),
+                primary_search_error=search_result["primary_search_error"],
+            )
             if rejection is not None:
                 rejected.append(rejection)
                 continue
@@ -673,6 +820,8 @@ def source_brief(source: dict[str, Any]) -> dict[str, Any]:
         "url": source.get("canonical_url", ""),
         "host": source.get("host", ""),
         "site_name": source.get("site_name", ""),
+        "search_provider": source.get("search_provider"),
+        "search_fallback_used": source.get("search_fallback_used", False),
         "published_at": source.get("published_at"),
         "published_basis": source.get("published_basis"),
         "freshness_status": source.get("freshness_status"),
@@ -685,7 +834,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect Morning Report search + fetch sources")
     parser.add_argument("--topic", help="Topic used to build default search queries")
     parser.add_argument("--query", action="append", help="Explicit search query; repeat for multiple queries")
-    parser.add_argument("--provider", default="brave")
+    parser.add_argument("--provider", default=DEFAULT_SEARCH_PROVIDER)
+    parser.add_argument("--fallback-provider", default=DEFAULT_SEARCH_FALLBACK_PROVIDER)
     parser.add_argument("--target-fetched", type=int, default=DEFAULT_TARGET_FETCHED, help="Stop after this many successfully fetched readable web sources")
     parser.add_argument("--max-search-calls", type=int, default=5)
     parser.add_argument("--limit-per-call", type=int, default=10)
@@ -710,6 +860,9 @@ def summary_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "search_calls_used": manifest.get("search_calls_used", 0),
         "max_search_calls": manifest.get("max_search_calls", 0),
         "limit_per_call": manifest.get("limit_per_call", 0),
+        "primary_search_provider": manifest.get("primary_search_provider"),
+        "fallback_search_provider": manifest.get("fallback_search_provider"),
+        "search_fallback_used": manifest.get("search_fallback_used", False),
         "candidate_count": manifest.get("candidate_count", 0),
         "target_fetched": manifest["target_fetched"],
         "source_count": manifest["source_count"],
@@ -739,6 +892,9 @@ def main() -> int:
             "search_calls_used": len(search_runs),
             "max_search_calls": args.max_search_calls,
             "limit_per_call": args.limit_per_call,
+            "primary_search_provider": args.provider,
+            "fallback_search_provider": args.fallback_provider,
+            "search_fallback_used": any(bool(run.get("fallback_used")) for run in search_runs),
             "candidate_count": len(candidates),
             "target_fetched": args.target_fetched,
             "source_count": len(sources),

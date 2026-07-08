@@ -52,6 +52,7 @@ def prepare_args(tmp: Path) -> Namespace:
         audio_file=str(tmp / "morning-report.mp3"),
         query=None,
         provider="brave",
+        fallback_provider="exa",
         target_fetched=5,
         max_search_calls=5,
         limit_per_call=10,

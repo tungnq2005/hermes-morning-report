@@ -157,7 +157,26 @@ class SetupReadinessTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][:4], ["openclaw", "infer", "web", "search"])
+        self.assertIn("--provider", calls[0])
+        self.assertIn("brave", calls[0])
         self.assertNotIn("fetch", result)
+
+    def test_web_tools_uses_exa_fallback_when_brave_probe_fails(self):
+        calls = []
+
+        def fake_json_result(cmd, timeout):
+            calls.append(cmd)
+            return {"ok": len(calls) == 2, "stdout": "{}"}
+
+        with mock.patch.object(setup_tools.shutil, "which", return_value="/usr/bin/openclaw"):
+            with mock.patch.object(setup_tools, "command_json_result", side_effect=fake_json_result):
+                result = setup_tools.check_web_tools(True, 10)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["fallback_used"])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("brave", calls[0])
+        self.assertIn("exa", calls[1])
 
     def test_channel_status_uses_telegram_channel_probe(self):
         calls = []

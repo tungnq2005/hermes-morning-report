@@ -19,6 +19,7 @@ def args(**overrides):
         "topic": "Gold market",
         "query": None,
         "provider": "brave",
+        "fallback_provider": "exa",
         "target_fetched": 2,
         "max_search_calls": 1,
         "limit_per_call": 10,
@@ -133,6 +134,8 @@ class WebSourceCollectorTests(unittest.TestCase):
         self.assertEqual([item["reason"] for item in rejected], ["outside_freshness_window", "duplicate"])
         self.assertEqual(sources[0]["canonical_url"], "https://example.com/recent")
         self.assertEqual(sources[0]["fetch"]["engine"], "firecrawl")
+        self.assertEqual(sources[0]["search_provider"], "brave")
+        self.assertFalse(sources[0]["search_fallback_used"])
         self.assertEqual(sources[0]["freshness_status"], "valid_24h")
         self.assertEqual(sources[1]["canonical_url"], "https://example.com/second")
         self.assertEqual(sources[1]["freshness_status"], "valid_24h")
@@ -175,6 +178,85 @@ class WebSourceCollectorTests(unittest.TestCase):
         self.assertEqual(len(search_runs), 2)
         self.assertEqual(len(candidates), 4)
         self.assertEqual(rejected[0]["reason"], "fetch_failed")
+
+    def test_brave_rate_limit_falls_back_to_exa_and_disables_primary_for_run(self):
+        now = datetime.now(timezone.utc).isoformat()
+        calls: list[tuple[str, str | None]] = []
+
+        def fake_search(query, limit, provider, timeout):
+            calls.append((query, provider))
+            if provider == "brave":
+                raise RuntimeError("monthly quota limit exceeded")
+            return {
+                "outputs": [
+                    {
+                        "result": {
+                            "results": [
+                                {
+                                    "title": f"Exa source {len(calls)}",
+                                    "url": f"https://example.com/exa-{len(calls)}",
+                                    "published": now,
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(collector, "run_search", side_effect=fake_search):
+                with mock.patch.object(collector, "run_firecrawl_fetch", side_effect=lambda url, timeout: firecrawl_success()):
+                    sources, rejected, search_runs, candidates = collector.collect_sources_incrementally(
+                        args(target_fetched=2, max_search_calls=5),
+                        Path(tmp),
+                    )
+
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(calls[0][1], "brave")
+        self.assertEqual(calls[1][1], "exa")
+        self.assertEqual(calls[2][1], "exa")
+        self.assertEqual([run["provider_used"] for run in search_runs], ["exa", "exa"])
+        self.assertTrue(all(run["fallback_used"] for run in search_runs))
+        self.assertTrue(search_runs[0]["primary_disabled_for_run"])
+        self.assertEqual(search_runs[0]["primary_search_error"]["reason"], "search_rate_limited")
+        self.assertEqual(sources[0]["search_provider"], "exa")
+        self.assertTrue(sources[0]["search_fallback_used"])
+        self.assertEqual(sources[0]["primary_search_provider"], "brave")
+        self.assertEqual(len(candidates), 2)
+
+    def test_primary_search_success_does_not_call_fallback(self):
+        now = datetime.now(timezone.utc).isoformat()
+        calls: list[str | None] = []
+
+        def fake_search(query, limit, provider, timeout):
+            calls.append(provider)
+            return {
+                "outputs": [
+                    {
+                        "result": {
+                            "results": [
+                                {"title": "One", "url": "https://example.com/one", "published": now},
+                                {"title": "Two", "url": "https://example.com/two", "published": now},
+                            ]
+                        }
+                    }
+                ]
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(collector, "run_search", side_effect=fake_search):
+                with mock.patch.object(collector, "run_firecrawl_fetch", side_effect=lambda url, timeout: firecrawl_success()):
+                    sources, rejected, search_runs, candidates = collector.collect_sources_incrementally(
+                        args(target_fetched=2),
+                        Path(tmp),
+                    )
+
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(rejected, [])
+        self.assertEqual(calls, ["brave"])
+        self.assertFalse(search_runs[0]["fallback_used"])
+        self.assertEqual(search_runs[0]["provider_used"], "brave")
 
     def test_firecrawl_success_accepts_source_without_python_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

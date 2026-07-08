@@ -20,6 +20,7 @@ from report.generate_audio_file import generate_audio_phase
 from report.record_audio_history import record_audio_phase
 from report.record_report_history import DEFAULT_HISTORY_DIR, record_report_phase
 from report.source_collection import fetch_phase, search_phase
+from report.web_source_collector import DEFAULT_SEARCH_FALLBACK_PROVIDER, DEFAULT_SEARCH_PROVIDER
 from report.validate_audio_script import (
     DEFAULT_MAX_WORDS as AUDIO_MAX_WORDS,
     DEFAULT_MIN_WORDS as AUDIO_MIN_WORDS,
@@ -42,7 +43,8 @@ def add_search_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--audio-script-file", default=str(DEFAULT_AUDIO_SCRIPT_FILE))
     parser.add_argument("--audio-file", default=str(DEFAULT_AUDIO_FILE))
     parser.add_argument("--query", action="append")
-    parser.add_argument("--provider", default="brave")
+    parser.add_argument("--provider", default=DEFAULT_SEARCH_PROVIDER)
+    parser.add_argument("--fallback-provider", default=DEFAULT_SEARCH_FALLBACK_PROVIDER)
     parser.add_argument("--max-search-calls", type=int, default=5)
     parser.add_argument("--limit-per-call", type=int, default=10)
     parser.add_argument("--include-social", action="store_true")

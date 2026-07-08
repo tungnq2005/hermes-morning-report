@@ -5,6 +5,7 @@ Use configured topics only.
 ## Search
 
 - Use the source collection helper when available.
+- Use Brave as primary search and Exa only as search fallback.
 - Search 10 URLs per call.
 - Dedupe URLs before fetch.
 - Fetch only URLs with search publish time inside the last 24 hours.

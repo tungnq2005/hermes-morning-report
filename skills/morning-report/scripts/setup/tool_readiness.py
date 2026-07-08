@@ -10,6 +10,9 @@ from typing import Any
 from setup.common import command_json_result
 from tts_languages import check_google_tts_language, resolve_tts_language
 
+PRIMARY_SEARCH_PROVIDER = "brave"
+FALLBACK_SEARCH_PROVIDER = "exa"
+
 
 @dataclass
 class ToolReadiness:
@@ -44,24 +47,36 @@ def check_web_tools(check_web_tools_enabled: bool, timeout: int) -> dict[str, An
             "ok": False,
             "error": "openclaw CLI not found on PATH",
         }
-    search = command_json_result(
-        [
-            "openclaw",
-            "infer",
-            "web",
-            "search",
-            "--query",
-            "Morning Report readiness check",
-            "--limit",
-            "1",
-            "--json",
-        ],
-        timeout,
-    )
+    base_cmd = [
+        "openclaw",
+        "infer",
+        "web",
+        "search",
+        "--query",
+        "Morning Report readiness check",
+        "--limit",
+        "1",
+        "--json",
+    ]
+    search = command_json_result(base_cmd + ["--provider", PRIMARY_SEARCH_PROVIDER], timeout)
+    if search.get("ok"):
+        return {
+            "checked": True,
+            "ok": True,
+            "primary_provider": PRIMARY_SEARCH_PROVIDER,
+            "fallback_provider": FALLBACK_SEARCH_PROVIDER,
+            "fallback_used": False,
+            "search": search,
+        }
+    fallback_search = command_json_result(base_cmd + ["--provider", FALLBACK_SEARCH_PROVIDER], timeout)
     return {
         "checked": True,
-        "ok": bool(search.get("ok")),
+        "ok": bool(fallback_search.get("ok")),
+        "primary_provider": PRIMARY_SEARCH_PROVIDER,
+        "fallback_provider": FALLBACK_SEARCH_PROVIDER,
+        "fallback_used": bool(fallback_search.get("ok")),
         "search": search,
+        "fallback_search": fallback_search,
     }
 
 
