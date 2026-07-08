@@ -72,10 +72,6 @@ Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key
 - Telegram bot token (@BotFather), model API key (DeepSeek…)
 - (Tùy chọn) Google Cloud OAuth client cho tính năng Google Workspace
 
-## Ghi công
-
-- **D1 — Morning Report**: nghiathan13
-- **D2 — Document Conversion**: tungnq2005
 
 ## Bảo mật
 
