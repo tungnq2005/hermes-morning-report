@@ -21,6 +21,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import doc_io
+import image_search
 from doc_io import DocConvertError
 
 try:
@@ -129,6 +130,35 @@ def build_docx(doc: dict, sections: list[dict], out_path: str) -> None:
     d.save(out_path)
 
 
+def resolve_images(args, doc: dict, sections: list[dict], run_dir: str,
+                   manifest: dict, build_pptx) -> tuple[list, list]:
+    """Decide which pictures the deck gets. Never returns an irrelevant one.
+
+    Explicit --image wins. Otherwise we search Openverse, but only with English
+    queries: the agent supplies --image-query per section, or the section titles
+    themselves serve when the document is already English. A Vietnamese title is
+    left unsearched -- Openverse answers it with fishing boats -- and the slide
+    simply goes without a picture.
+    """
+    if args.image:
+        return list(args.image), []
+    if args.no_auto_images:
+        return [], []
+
+    queries = list(args.image_query or [])
+    if not queries:
+        if not build_pptx._is_english(doc):
+            manifest["warnings"].append("image_search_needs_english_query")
+            return [], []
+        queries = [sec["title"] or doc["title"] for sec in sections]
+
+    paths, credits, warnings = image_search.fetch(queries, os.path.join(run_dir, "images"))
+    manifest["warnings"].extend(warnings)
+    if credits:
+        manifest["image_credits"] = credits
+    return paths, credits
+
+
 def to_pdf(src_path: str, run_dir: str) -> str:
     cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", run_dir, src_path]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -145,6 +175,11 @@ def main() -> int:
     ap.add_argument("--title", default="", help="Override document title")
     ap.add_argument("--subtitle", default="", help="Subtitle for the pptx title slide")
     ap.add_argument("--image", action="append", default=[], help="Image file to place on slides (repeatable)")
+    ap.add_argument("--image-query", action="append", default=[],
+                    help="English search phrase for one section's slide image, in section order "
+                         "(repeatable). Openverse returns nothing useful for Vietnamese queries.")
+    ap.add_argument("--no-auto-images", action="store_true",
+                    help="Never search Openverse; leave slides without pictures.")
     ap.add_argument("--min-slides", type=int, default=5)
     ap.add_argument("--outdir", default=None)
     args = ap.parse_args()
@@ -221,8 +256,9 @@ def main() -> int:
         elif args.to == "pptx":
             import build_pptx
             out_path = os.path.join(run_dir, base + ".pptx")
+            images, credits = resolve_images(args, doc, sections, run_dir, manifest, build_pptx)
             stats = build_pptx.build(doc, sections, out_path, min_slides=args.min_slides,
-                                     images=args.image, subtitle=args.subtitle)
+                                     images=images, subtitle=args.subtitle, credits=credits)
             manifest.update(stats)
         else:  # pdf from text-ish input: build docx first, then convert
             tmp_docx = os.path.join(run_dir, base + ".docx")

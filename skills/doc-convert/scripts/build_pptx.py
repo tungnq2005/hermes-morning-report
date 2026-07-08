@@ -16,11 +16,15 @@ SLIDE_H = Inches(7.5)
 
 
 def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
-          images: list[str] | None = None, subtitle: str = "") -> dict:
+          images: list[str | None] | None = None, subtitle: str = "",
+          credits: list[dict] | None = None) -> dict:
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
-    images = [p for p in (images or []) if os.path.exists(p)]
+    # Keep one slot per requested image, None where the fetch failed, so a missing
+    # picture leaves its own slide bare instead of shifting every later picture onto
+    # the wrong section.
+    images = [p if p and os.path.exists(p) else None for p in (images or [])]
     img_iter = iter(images)
 
     _title_slide(prs, doc["title"], subtitle)
@@ -32,13 +36,15 @@ def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
         _bullet_slide(prs, "Agenda" if _is_english(doc) else "Nội dung", agenda[:8], None)
     for sec in content_sections:
         _bullet_slide(prs, sec["title"] or doc["title"], sec["items"], next(img_iter, None))
+    if credits:
+        _credits_slide(prs, credits, english=_is_english(doc))
     _closing_slide(prs, doc["title"])
 
     while len(prs.slides) < min_slides:
         _bullet_slide(prs, doc["title"], ["(bổ sung)"], None)
 
     prs.save(out_path)
-    return {"slides": len(prs.slides), "images_used": len(images)}
+    return {"slides": len(prs.slides), "images_used": sum(1 for p in images if p)}
 
 
 def _paginate(sections: list[dict], max_bullets: int = MAX_BULLETS_PER_SLIDE) -> list[dict]:
@@ -100,6 +106,31 @@ def _bullet_slide(prs: Presentation, title: str, bullets: list[str], image: str 
             slide.shapes.add_picture(image, SLIDE_W - Inches(4.4), Inches(1.5), width=Inches(3.8))
         except Exception:
             pass  # bad image must not break the deck
+
+
+def _credits_slide(prs: Presentation, credits: list[dict], english: bool) -> None:
+    """CC-BY images must name the creator. cc0/pdm need not, but crediting all is simpler."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _accent_bar(slide, top=Inches(1.05))
+    tbox = slide.shapes.add_textbox(Inches(0.6), Inches(0.35), SLIDE_W - Inches(1.2), Inches(0.7))
+    tp = tbox.text_frame.paragraphs[0]
+    tp.text = "Image credits" if english else "Nguồn ảnh"
+    tp.font.size = Pt(28)
+    tp.font.bold = True
+    tp.font.color.rgb = ACCENT
+
+    body = slide.shapes.add_textbox(Inches(0.7), Inches(1.4), SLIDE_W - Inches(1.4), SLIDE_H - Inches(2.0))
+    tf = body.text_frame
+    tf.word_wrap = True
+    for i, credit in enumerate(credits):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        title = (credit.get("title") or credit.get("query") or "Untitled")[:60]
+        creator = credit.get("creator") or "Unknown"
+        licence = credit.get("license") or "CC"
+        p.text = f"•  {title} — {creator} ({licence}) · Openverse"
+        p.font.size = Pt(13)
+        p.font.color.rgb = MUTED
+        p.space_after = Pt(6)
 
 
 def _closing_slide(prs: Presentation, title: str) -> None:

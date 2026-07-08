@@ -27,13 +27,25 @@ For `--to gdoc` or `--to gslides` the converter creates a NEW file in the user's
 
 ## Images For Slides (pptx target only)
 
-The acceptance bar for generated PowerPoints is ≥5 slides, consistent layout, and relevant imagery. Before running the converter for a pptx target:
+The acceptance bar for generated PowerPoints is ≥5 slides, consistent layout, and relevant imagery. The converter fetches the pictures itself from Openverse (openly licensed, no API key) and appends a credits slide. Your job is to give it good queries.
 
-1. Pick 2-4 short image search queries from the document's main topics.
-2. Use the available web/image tools to find and download 2-4 relevant, license-safe images into the run's directory or any workspace path.
-3. Pass each downloaded file with a repeated `--image <path>` flag.
+Pass **one `--image-query` per section, in section order**, and write each query **in English** — Openverse indexes almost nothing under Vietnamese, and answers "Hạ tầng điện toán đám mây" with zero results. Translate the section title into a short, concrete English phrase:
 
-If image search is unavailable or fails, continue without images and tell the user the deck was generated without imagery this time.
+| Section title | `--image-query` |
+| --- | --- |
+| Tổng quan kinh tế số | `digital economy` |
+| Trí tuệ nhân tạo và dữ liệu lớn | `artificial intelligence` |
+| Hạ tầng điện toán đám mây | `cloud data center` |
+
+Rules:
+
+- One query per section. If a section has no sensible picture, pass an empty string `--image-query ""` to leave that slide bare.
+- A query that finds nothing leaves its own slide without a picture; the other slides keep theirs.
+- Never pass `--image-query` in Vietnamese. A wrong picture is worse than no picture.
+- `--image <path>` still overrides everything when the user supplies their own files.
+- `--no-auto-images` disables the search entirely.
+
+If the deck comes back with `images_used: 0` and a `image_search_no_result:*` warning, tell the user the deck was generated without imagery and offer to retry with different queries.
 
 ## Run
 
@@ -42,13 +54,16 @@ python3 skills/doc-convert/scripts/convert.py \
   --input "<path-or-url>" \
   --to <pptx|docx|pdf|md> \
   [--title "<title>"] [--subtitle "<subtitle>"] \
-  [--image <path> --image <path>] \
+  [--image-query "digital economy" --image-query "artificial intelligence"] \
+  [--image <path> --image <path>] [--no-auto-images] \
   [--min-slides 5]
 ```
 
 Parse the JSON output.
 
 - On `"success": true`: the `output` field is the absolute result path (inside the workspace).
+- `images_used` counts the pictures that landed on slides; `image_credits` lists their creators and licences.
+- `warnings` may carry `image_search_needs_english_query`, `image_search_no_result:<q>`, `image_search_failed:<q>:<Error>`, or `image_search_disabled`. None of these are fatal.
 - On failure: relay the `error` message honestly. Common cases: private Google link (ask the user to enable link sharing or upload the file), scanned PDF (unsupported), unsupported extension.
 
 ## Deliver
