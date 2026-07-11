@@ -21,21 +21,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-REPORT_DIR = Path(__file__).resolve().parent
-SCRIPTS_DIR = REPORT_DIR.parent
-SKILL_DIR = SCRIPTS_DIR.parent
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPT_DIR.parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-from tts_languages import resolve_tts_language  # noqa: E402
+from helpers.tts_languages import check_tts_language  # noqa: E402
+from helpers.history import record_audio_validation  # noqa: E402
 
-DEFAULT_HISTORY_DIR = SKILL_DIR / "state" / "history"
 GOOGLE_TTS_URL = "https://translate.google.com/translate_tts"
 DEFAULT_CHUNK_LIMIT = 180
 DEFAULT_TIMEOUT_SECONDS = 45
-DEFAULT_MIN_WORDS = 450
-DEFAULT_MAX_WORDS = 750
-DEFAULT_WORDS_PER_MINUTE = 150
+DEFAULT_MIN_WORDS = 680
+DEFAULT_MAX_WORDS = 930
+DEFAULT_WORDS_PER_MINUTE = 189
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -370,33 +369,11 @@ def apply_audio_speed(path: Path, speed: float, run_dir: Path) -> dict[str, Any]
     return info
 
 
-def make_run_dir(history_dir: Path, text: str, now: datetime) -> Path:
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
-    date_dir = history_dir / now.strftime("%Y-%m-%d")
-    base_name = f"{now.strftime('%H%M%S')}-{digest}"
-    candidate = date_dir / base_name
-    suffix = 1
-    while candidate.exists():
-        suffix += 1
-        candidate = date_dir / f"{base_name}-{suffix}"
-    candidate.mkdir(parents=True, exist_ok=False)
-    return candidate
-
-
-def write_manifest(run_dir: Path, manifest: dict[str, Any]) -> None:
-    (run_dir / "audio-manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
 def generate_audio(
     *,
     text_file: str,
     lang: str,
     output: str | None = None,
-    history_dir: str | Path = DEFAULT_HISTORY_DIR,
-    run_dir: str | Path | None = None,
     chunk_limit: int = DEFAULT_CHUNK_LIMIT,
     transport: str = "auto",
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
@@ -410,18 +387,15 @@ def generate_audio(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     created_at = now or datetime.now(timezone.utc)
-    history_run_dir: Path | None = None
+    work_dir: Path | None = None
     try:
         raw_text = read_input_text(text_file)
         text = normalize_text(raw_text)
         chunks = split_text(text, chunk_limit)
         selected_transport = choose_transport(transport)
-        language_check = resolve_tts_language(lang)
-        if not language_check["ok"]:
-            raise ValueError(
-                f"unsupported_tts_language: {lang!r}; status={language_check['status']}"
-            )
-        tts_lang = str(language_check["lang"])
+        tts_lang = check_tts_language(lang)["lang"]
+        if not tts_lang:
+            raise ValueError(f"unsupported_tts_language: {lang!r}")
         length = audio_length_info(text, min_words, max_words, wpm)
         speed_info = speed_metadata(speed)
         if not 0.5 <= speed <= 2.0:
@@ -443,13 +417,11 @@ def generate_audio(
                 "chunks": chunks,
             }
 
-        if run_dir is not None:
-            history_run_dir = Path(run_dir)
-            history_run_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            history_run_dir = make_run_dir(Path(history_dir), text, created_at)
-        (history_run_dir / "audio-script.txt").write_text(text + "\n", encoding="utf-8")
-        chunks_dir = history_run_dir / "chunks"
+        final_output = Path(output) if output else Path("/tmp/morning-report.mp3")
+        final_output.parent.mkdir(parents=True, exist_ok=True)
+        work_dir = Path("/tmp/morning-report-audio-chunks")
+        work_dir.mkdir(parents=True, exist_ok=True)
+        chunks_dir = work_dir / "chunks"
         chunks_dir.mkdir(parents=True, exist_ok=True)
 
         chunk_paths: list[Path] = []
@@ -468,23 +440,17 @@ def generate_audio(
             chunk_manifest.append(
                 {
                     "index": index,
-                    "file": str(chunk_path.relative_to(history_run_dir)),
+                    "file": str(chunk_path.relative_to(work_dir)),
                     "characters": len(chunk),
                     "bytes": size,
                     "text": chunk,
                 }
             )
 
-        history_output = history_run_dir / "morning-report.mp3"
-        merge_method = merge_audio(chunk_paths, history_output, history_run_dir)
-        speed_info = apply_audio_speed(history_output, speed, history_run_dir)
-        final_output = Path(output) if output else history_output
-        if final_output.resolve() != history_output.resolve():
-            final_output.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(history_output, final_output)
-            validate_audio_file(final_output)
+        merge_method = merge_audio(chunk_paths, final_output, work_dir)
+        speed_info = apply_audio_speed(final_output, speed, work_dir)
 
-        manifest = {
+        return {
             "success": True,
             "created_at": created_at.isoformat(),
             "lang": tts_lang,
@@ -497,125 +463,22 @@ def generate_audio(
             "char_count": len(text),
             **length,
             "chunk_count": len(chunks),
-            "history_dir": str(history_run_dir),
-            "history_audio": str(history_output),
             "output": str(final_output),
             "output_bytes": final_output.stat().st_size,
             "chunks": chunk_manifest,
         }
-        write_manifest(history_run_dir, manifest)
-        return manifest
     except Exception as exc:
-        if history_run_dir is not None:
-            write_manifest(
-                history_run_dir,
-                {
-                    "success": False,
-                    "created_at": created_at.isoformat(),
-                    "error": str(exc),
-                },
-            )
         raise
-
-
-def apply_audio_generation_result(
-    *,
-    state: dict[str, Any],
-    work_dir: Path,
-    audio: dict[str, Any],
-    manifest: dict[str, Any] | None,
-    error: str,
-) -> tuple[bool, dict[str, Any]]:
-    from report.common import runner_command, save_run_state
-
-    if manifest and manifest.get("success"):
-        manifest_path = str(Path(manifest["history_dir"]) / "audio-manifest.json")
-        audio.update(
-            {
-                "status": "generated",
-                "file": manifest["output"],
-                "manifest": manifest_path,
-                "generation": manifest,
-            }
-        )
-        next_action = {
-            "type": "send_audio",
-            "media_line": f"MEDIA:{manifest['output']}",
-            "message_goal": "Send one standalone MEDIA line for Telegram.",
-            "next_command": runner_command("record-audio", work_dir, "--audio-status", "sent", "--send-status", "sent"),
-        }
-        success = True
-    else:
-        audio.update(
-            {
-                "status": "failed",
-                "failure_reason": "audio_generation_failed",
-                "error": error,
-            }
-        )
-        next_action = {
-            "type": "audio_failed_notice",
-            "message_goal": "Tell the user the text report was sent but audio generation failed.",
-            "next_command": runner_command("record-audio", work_dir, "--audio-status", "failed", "--send-status", "failure_notice_sent"),
-        }
-        success = False
-
-    state["next_action"] = next_action
-    save_run_state(work_dir, state)
-    return success, next_action
-
-
-def generate_audio_phase(args: argparse.Namespace) -> dict[str, Any]:
-    from report.common import load_run_state
-
-    work_dir = Path(args.work_dir)
-    state = load_run_state(work_dir)
-    audio_script_file = Path(args.audio_script_file or state["audio_script_file"])
-    output_file = Path(args.audio_file or state["audio_file"])
-    audio = state.setdefault("audio", {})
-    manifest: dict[str, Any] | None = None
-    error = ""
-    try:
-        history_run_dir = state.get("history", {}).get("run_dir")
-        manifest = generate_audio(
-            text_file=str(audio_script_file),
-            output=str(output_file),
-            lang=state["config"]["report_language"],
-            run_dir=history_run_dir,
-            speed=args.speed,
-            min_words=args.min_words,
-            max_words=args.max_words,
-            wpm=args.wpm,
-            chunk_limit=args.chunk_limit,
-            strict_length=True,
-        )
-    except Exception as exc:
-        error = str(exc)
-
-    success, next_action = apply_audio_generation_result(
-        state=state,
-        work_dir=work_dir,
-        audio=audio,
-        manifest=manifest,
-        error=error,
-    )
-    return {
-        "success": success,
-        "phase": "generate-audio",
-        "can_continue": success,
-        "work_dir": str(work_dir),
-        "audio_file": str(output_file),
-        "config": state["config"],
-        "audio": audio,
-        "next_action": next_action,
-    }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate Morning Report MP3 audio")
     parser.add_argument("--text-file", required=True, help="Text file to synthesize, or '-' for stdin")
-    parser.add_argument("--output", help="Final MP3 output path. Defaults to the history run directory")
-    parser.add_argument("--history-dir", default=str(DEFAULT_HISTORY_DIR), help="Audio history directory")
+    parser.add_argument(
+        "--output",
+        help="Final MP3 output path. Defaults to run_dir/morning-report.mp3 when --run-dir is set, otherwise /tmp/morning-report.mp3",
+    )
+    parser.add_argument("--run-dir", help="History run directory for recording audio metadata")
     parser.add_argument(
         "--lang",
         required=True,
@@ -639,10 +502,12 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        output = args.output
+        if output is None and args.run_dir and not args.dry_run:
+            output = str(Path(args.run_dir) / "morning-report.mp3")
         result = generate_audio(
             text_file=args.text_file,
-            output=args.output,
-            history_dir=args.history_dir,
+            output=output,
             lang=args.lang,
             chunk_limit=args.chunk_limit,
             transport=args.transport,
@@ -655,6 +520,10 @@ def main() -> int:
             strict_length=args.strict_length,
             dry_run=args.dry_run,
         )
+        if args.run_dir and result.get("success") and not result.get("dry_run"):
+            audio_meta = record_audio_validation(Path(args.run_dir), Path(str(result["output"])))
+            result["audio"] = audio_meta
+            result["output"] = str(Path(args.run_dir) / str(audio_meta["file"]))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:

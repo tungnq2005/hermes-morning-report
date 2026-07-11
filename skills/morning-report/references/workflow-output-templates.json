@@ -1,0 +1,48 @@
+{
+  "description": "Official stdout templates for Morning Report workflow steps that return next_action.",
+  "steps": {
+    "prepare_config": {
+      "configured": {
+        "next_action": "Use available_config as the full Morning Report config after applying requested values. Ask the user to confirm before saving. {requested_config_section}After confirmation, rerun prepare_config.py with --save --enable-cron and the same requested values. Saving will create the Morning Report cron job if it does not exist, or update the existing cron job when delivery_time or timezone changes."
+      },
+      "needs_config": {
+        "next_action": "Use available_config as the partial Morning Report config after applying requested values. Reply in the user's language. {requested_config_section}Ask only for fields that appear in missing_config, with one short Telegram-friendly bullet per line. Use natural suggestions, not fixed wording. Format missing-field questions like this:\n• topic: ask which topic to track, with 2-3 relevant examples.\n• delivery_time: ask whether a common morning time works or another time is preferred.\n• timezone: ask whether the likely/current timezone is correct or another timezone should be used.\n• report_style: if report_style is absent from available_config, ask which style fits best; if report_style is present, ask to adjust it to exactly one of concise, deep_analysis, or opportunities_risks.\n• report_language: ask which language to use, with 1-2 natural examples.\n• audio_summary: ask whether audio summary should be enabled.\n• delivery_channel: ask whether Telegram is okay or another channel is preferred.\nDo not save until the full resulting config is clearly confirmed."
+      },
+      "saved": {
+        "next_action": "The Morning Report config has been saved using available_config.{requested_config_section}{cron_sync_section}"
+      },
+      "save_blocked": {
+        "next_action": "The Morning Report config was not saved because missing_config is not empty. Reply in the user's language. {requested_config_section}Ask only for fields that appear in missing_config, with one short Telegram-friendly bullet per line. Use natural suggestions, not fixed wording. After the user provides the missing fields and confirms, rerun prepare_config.py with --save --enable-cron and the complete requested values."
+      }
+    },
+    "collect_sources": {
+      "config_missing": {
+        "configured": false,
+        "next_action": "Stop. Tell the user in their language what configuration is missing, based on missing_config."
+      },
+      "success_with_sources": {
+        "success": true,
+        "next_action": "Read every .txt file in {run_dir}/sources/ (SOURCE_TITLE, SOURCE_URL, content), then write {run_dir}/report.md following references/report-styles.md.",
+        "run_dir": "{run_dir}"
+      },
+      "no_usable_sources": {
+        "success": false,
+        "next_action": "Stop. Tell the user in their language that there were not enough usable fresh sources to generate today's report. Mention they can try again later or change the topic.",
+        "run_dir": "{run_dir}"
+      },
+      "search_provider_failed": {
+        "success": false,
+        "next_action": "Stop. Tell the user in their language that the report could not run because the search provider failed. Mention that run details were saved for troubleshooting.",
+        "run_dir": "{run_dir}"
+      }
+    },
+    "validate_report": {
+      "valid": {
+        "next_action": "Send the validated report to the user via Telegram."
+      },
+      "invalid": {
+        "next_action": "Fix the report file using issues, then re-run report validation."
+      }
+    }
+  }
+}
