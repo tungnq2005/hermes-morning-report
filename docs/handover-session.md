@@ -19,7 +19,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 1. Khách nhắn: *"Chạy thử morning report ngay"* → chờ nhận bản tin text + audio MP3.
 2. Trong lúc chờ, mở dashboard `http://127.0.0.1:18789/` cho xem cron job đang lên lịch (`Next run`).
 3. Khách tự đổi chủ đề: *"Thêm chủ đề giá vàng"* → xác nhận.
-4. Chỉ cách tạm dừng / bật lại.
+4. Khách tự tạm dừng / bật lại: *"Tạm dừng morning report"* → bot xác nhận đã pause; rồi *"Bật lại morning report"* → bot xác nhận đã resume. Config giữ nguyên.
 
 ## Phút 10–20 — Document Conversion (để KHÁCH tự làm)
 1. Khách kéo–thả 1 file Word vào chat + *"Chuyển thành PowerPoint"* → nhận .pptx.
@@ -41,7 +41,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 
 ## Checklist nghiệm thu D3 / D3 acceptance checklist
 - [ ] Gateway `active (running)`, tự lên sau reboot VPS (lingering=yes).
-- [ ] Morning report gửi được text + audio 3–5 phút; cron đặt đúng 7:00 giờ khách.
+- [ ] Morning report gửi được text + audio 3–5 phút; cron đặt đúng giờ gửi đã cấu hình (theo timezone của khách).
 - [ ] Doc-convert: docx↔pptx↔pdf + narrate chạy được qua chat.
 - [ ] `secrets audit --check` → clean (plaintext=0).
 - [ ] `healthcheck.sh` → `ok:true`.

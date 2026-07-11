@@ -1,11 +1,11 @@
-# OpenClaw Morning Report + Document Agent
+# Hermes Morning Report + Document Agent
 
-Hai trợ lý AI chạy qua **Telegram bot** (nền tảng [OpenClaw](https://openclaw.ai), cài native trên VPS Ubuntu):
+Hai trợ lý AI chạy qua **Telegram bot** (nền tảng **Hermes**, cài native trên VPS Ubuntu):
 
 1. **Morning Report** — mỗi sáng bot tự tổng hợp tin theo chủ đề bạn chọn và gửi **bản chữ + audio 3–5 phút**. Đổi chủ đề / giờ gửi / phong cách bằng cách nhắn bot.
 2. **Document Conversion** — gửi file (Word/PowerPoint/PDF/Markdown) hoặc link Google, bot **chuyển đổi hai chiều**, tạo draft thẳng vào **Google Docs/Slides**, hoặc **đọc thành audio**.
 
-> Two Telegram-based AI agents on OpenClaw: a daily **Morning Report** (text + audio brief) and a **Document Conversion** agent (Word/PPT/PDF/Markdown + Google Workspace + narration).
+> Two Telegram-based AI agents on Hermes: a daily **Morning Report** (text + audio brief) and a **Document Conversion** agent (Word/PPT/PDF/Markdown + Google Workspace + narration).
 
 ---
 
@@ -21,9 +21,9 @@ Hai trợ lý AI chạy qua **Telegram bot** (nền tảng [OpenClaw](https://op
 ## Kiến trúc
 
 ```
-Telegram  ──long-polling──►  OpenClaw Gateway (native, systemd, 127.0.0.1)
+Telegram  ──long-polling──►  Hermes Gateway (native, systemd, 127.0.0.1)
                                  ├─ LLM: DeepSeek (SecretRef)
-                                 ├─ Search: Brave / Tavily / SearXNG / Exa
+                                 ├─ Search: Brave / Tavily / SearXNG / Exa  ·  Fetch: Firecrawl
                                  ├─ TTS: Google TTS → MP3
                                  └─ Skills:
                                       • morning-report  (D1)
@@ -57,7 +57,7 @@ chmod +x setup_all.sh scripts/*.sh
 ```
 
 Chi tiết từng bước + wizard tương tác: xem [setup/README.md](setup/README.md).
-Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key, Google OAuth) — repo không chứa secret nào.
+Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key, **Exa & Firecrawl API keys**, Google OAuth) — repo không chứa secret nào.
 
 ## Tài liệu
 
@@ -69,10 +69,10 @@ Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key
 ## Yêu cầu
 
 - VPS Ubuntu 22.04/24.04+, ≥ 2GB RAM (LibreOffice + audio)
-- Telegram bot token (@BotFather), model API key (DeepSeek…)
+- Telegram bot token (@BotFather), model API key (DeepSeek…), Exa & Firecrawl API keys (cho Morning Report)
 - (Tùy chọn) Google Cloud OAuth client cho tính năng Google Workspace
 
 
 ## Bảo mật
 
-Không commit secret. `.gitignore` đã loại `state/`, `*.env`, `google-creds/`, `token.json`, `client_secret.json`. Mỗi lần deploy tự cấp secret riêng qua `/etc/openclaw/openclaw.env` (quyền 600, SecretRef).
+Không commit secret. `.gitignore` đã loại `state/`, `*.env`, `google-creds/`, `token.json`, `client_secret.json`. Mỗi lần deploy tự cấp secret riêng qua `~/.hermes/.env` (quyền 600, SecretRef).

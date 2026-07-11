@@ -18,13 +18,14 @@ required_environment_variables:
 
 # Morning Report
 
-Collects 24h topic updates via Exa and sends a structured daily briefing to Telegram, with optional MP3 audio. Config in `state/topic-config.json`.
+Collects 24h updates for one or more configured topics via Exa and sends a separate structured daily briefing to Telegram for each topic, with optional MP3 audio. Config in `state/topic-config.json`.
 
 ## Workflow Router
 
 Choose exactly one workflow below and follow it step by step.
 
 - **Set up or update Morning Report config:** → [Update Config](#update-config)
+- **Pause or resume the daily schedule:** → [Pause / Resume](#pause--resume)
 - **Run / generate / test a report:** → [Run Report](#run-report)
 - **Check current state, cron status, or troubleshoot:** → [Status](#status)
 
@@ -40,7 +41,9 @@ Supported flags:
 
 | Setting          | Flag                                      |
 | ---------------- | ----------------------------------------- |
-| Topic            | `--topic "<topic>"`                       |
+| Replace topics   | `--topic "<topic>"` (repeatable)          |
+| Add topic        | `--add-topic "<topic>"`                   |
+| Remove topic     | `--remove-topic "<topic>"`                |
 | Delivery time    | `--delivery-time "<time>"`                |
 | Timezone         | `--timezone "<tz>"`                       |
 | Report style     | `--report-style "<style>"`                |
@@ -51,7 +54,8 @@ Supported flags:
 Config-related requests:
 
 - Set up Morning Report.
-- Change topic, delivery time, timezone, report style, report language, audio summary, or delivery channel.
+- Change, add, or remove topics.
+- Change delivery time, timezone, report style, report language, audio summary, or delivery channel.
 - Enable or update the daily schedule.
 
 Not config-related:
@@ -69,6 +73,8 @@ Examples:
 ```bash
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --topic "World Cup" --report-language "English"
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --add-topic "Gold prices"
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --remove-topic "Weather"
 ```
 
 Read the JSON output and follow `next_action`. Use `available_config` as the Morning Report config after applying the requested values. Do not save until the user clearly confirms and `missing_config` is empty.
@@ -87,6 +93,26 @@ Read the JSON output and follow `next_action`. Saving includes creating the Morn
 
 
 
+## Pause / Resume
+
+Use when the user wants to pause or resume the daily Morning Report schedule without changing config. Config (`state/topic-config.json`) is preserved — only the cron job is toggled.
+
+### Step 1: Pause or resume the schedule
+
+```bash
+# Pause
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --pause-cron
+
+# Resume
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --resume-cron
+```
+
+Read the JSON output and follow `next_action`. `cron_state` will be one of: `paused`, `resumed`, `no_job`, `already_paused`, `already_running`, `error`. Config is preserved on both pause and resume.
+
+---
+
+
+
 ## Run Report
 
 Use for manual, test, or cron report runs. Follow each step in order.
@@ -94,40 +120,50 @@ Use for manual, test, or cron report runs. Follow each step in order.
 **Cron runs:** send no progress or acknowledgement messages before the final report.
 **Manual runs:** at most one short acknowledgement before work begins.
 
-### Step 1: Check config and collect sources
+### Step 1: Check config
 
 ```bash
-python3 ~/.hermes/skills/productivity/morning-report/scripts/collect_sources.py
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py
 ```
 
-Read the JSON output and follow `next_action`.
+If `configured` is false, follow `next_action` and stop. If configured is true, keep `available_config.topics` as `TOPICS`. Each topic in `TOPICS` must produce its own report, and its own audio when audio is enabled.
+
+### Step 2: Collect sources for one topic
+
+For each topic in `TOPICS`, run the rest of the Run Report workflow once:
+
+```bash
+python3 ~/.hermes/skills/productivity/morning-report/scripts/collect_sources.py --topic "<topic>"
+```
+
+Read the JSON output and follow `next_action`. Keep the returned `topic` and `run_dir` for the current topic.
 
 
 
-### Step 2: Validate and send report
+### Step 3: Validate and send report
 
 ```bash
 python3 ~/.hermes/skills/productivity/morning-report/scripts/validate.py \
   --type report \
-  --report-file "<run_dir from Step 1 output>/report.md" \
+  --report-file "<run_dir from Step 2 output>/report.md" \
   --style "<style>" \
-  --run-dir "<run_dir from Step 1 output>"
+  --run-dir "<run_dir from Step 2 output>"
 ```
 
 Read the JSON output and follow `next_action`.
 
 
 
-### Step 3: Validate, generate, and send audio
+### Step 4: Validate, generate, and send audio
 
-If audio is disabled, stop here.
+If audio is disabled, skip audio for the current topic and continue with the next topic.
 
-1. Write audio script from report facts → `<run_dir from Step 1 output>/audio-script.txt`
+1. Write audio script from report facts → `<run_dir from Step 2 output>/audio-script.txt`
 
 2. Validate:
 ```bash
 python3 ~/.hermes/skills/productivity/morning-report/scripts/validate.py \
-  --type audio --text-file "<run_dir from Step 1 output>/audio-script.txt"
+  --type audio --text-file "<run_dir from Step 2 output>/audio-script.txt"
 ```
 - `ok: true` → continue to MP3 generation.
 - `ok: false` with `under_min_words` → expand the script; aim for ~780 words (middle of the 680-930 range). Re-validate.
@@ -138,16 +174,16 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/validate.py \
 
 ```bash
 python3 ~/.hermes/skills/productivity/morning-report/scripts/generate_audio_file.py \
-  --text-file "<run_dir from Step 1 output>/audio-script.txt" \
+  --text-file "<run_dir from Step 2 output>/audio-script.txt" \
   --speed 1.2 --strict-length \
   --lang "<language from config>" \
-  --output "<run_dir from Step 1 output>/morning-report.mp3" \
-  --run-dir "<run_dir from Step 1 output>"
+  --output "<run_dir from Step 2 output>/morning-report.mp3" \
+  --run-dir "<run_dir from Step 2 output>"
 ```
 
 4. Send audio as media:
 ```
-MEDIA:<run_dir from Step 1 output>/morning-report.mp3
+MEDIA:<run_dir from Step 2 output>/morning-report.mp3
 ```
 
 ---
@@ -173,7 +209,7 @@ Read the JSON output. Present `available_config`, whether `configured` is true, 
 cronjob(action='list')
 ```
 
-If a "Morning Report" job exists, show its schedule and enabled status. If not, say "no daily schedule is set up."
+If a "Morning Report" job exists, show its schedule and whether it is **active** or **paused**. If paused, tell the user the report is not being sent and they can resume it by asking to resume the morning report. If active, mention they can pause it by asking to pause the morning report. If no job exists, say "no daily schedule is set up."
 
 ### Step 3: Show recent history (optional)
 

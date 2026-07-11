@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from helpers.check_topic_config import DEFAULT_CONFIG_PATH, check_topic_config
+from helpers.check_topic_config import DEFAULT_CONFIG_PATH, check_topic_config, normalize_topics
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
@@ -33,7 +33,6 @@ PREFERENCE_FIELDS = [
 ]
 
 REQUEST_FIELD_ORDER = [
-    "topic",
     *PREFERENCE_FIELDS,
 ]
 
@@ -55,7 +54,9 @@ def save_config_data(path: Path, data: dict[str, Any]) -> None:
 
 def collect_requested_config(args: argparse.Namespace) -> dict[str, Any]:
     requested = {
-        "topic": args.topic,
+        "topics": args.topic,
+        "add_topics": args.add_topic,
+        "remove_topics": args.remove_topic,
         "delivery_time": args.delivery_time,
         "timezone": args.timezone,
         "report_style": args.report_style,
@@ -66,11 +67,34 @@ def collect_requested_config(args: argparse.Namespace) -> dict[str, Any]:
     return {key: value for key, value in requested.items() if value is not None}
 
 
+def current_topics(data: dict[str, Any]) -> list[str]:
+    topics = normalize_topics(data.get("topics"))
+    if topics:
+        return topics
+    return normalize_topics(data.get("topic"))
+
+
 def apply_requested_config(data: dict[str, Any], requested: dict[str, Any]) -> dict[str, Any]:
     candidate = copy.deepcopy(data) if isinstance(data, dict) else {}
+    candidate.pop("topic", None)
+    topics = current_topics(data)
 
-    if "topic" in requested:
-        candidate["topic"] = requested["topic"]
+    if "topics" in requested:
+        topics = normalize_topics(requested["topics"])
+
+    if "add_topics" in requested:
+        seen = {topic.casefold() for topic in topics}
+        for topic in normalize_topics(requested["add_topics"]):
+            topic_key = topic.casefold()
+            if topic_key not in seen:
+                topics.append(topic)
+                seen.add(topic_key)
+
+    if "remove_topics" in requested:
+        remove = {topic.casefold() for topic in normalize_topics(requested["remove_topics"])}
+        topics = [topic for topic in topics if topic.casefold() not in remove]
+
+    candidate["topics"] = topics
 
     for field in PREFERENCE_FIELDS:
         if field in requested:
@@ -82,9 +106,10 @@ def apply_requested_config(data: dict[str, Any], requested: dict[str, Any]) -> d
 def saved_config_data(candidate_data: dict[str, Any], candidate_check: dict[str, Any]) -> dict[str, Any]:
     saved = copy.deepcopy(candidate_data)
     available = candidate_check["available_config"]
+    saved.pop("topic", None)
 
-    if "topic" in available:
-        saved["topic"] = available["topic"]
+    if "topics" in available:
+        saved["topics"] = available["topics"]
 
     for field in PREFERENCE_FIELDS:
         if field in available:
@@ -99,6 +124,14 @@ def requested_config_bullets(
     requested: dict[str, Any],
 ) -> str:
     bullets: list[str] = []
+    if any(field in requested for field in ("topics", "add_topics", "remove_topics")):
+        old_topics = ", ".join(normalize_topics(current_config.get("topics")))
+        new_topics = ", ".join(normalize_topics(candidate_config.get("topics")))
+        if old_topics and old_topics != new_topics:
+            bullets.append(f"• topics: {old_topics} → {new_topics or '(empty)'}")
+        else:
+            bullets.append(f"• topics: {new_topics or '(empty)'}")
+
     for field in REQUEST_FIELD_ORDER:
         if field not in requested:
             continue
@@ -142,20 +175,33 @@ def local_time_to_utc_cron(delivery_time: str, tz_name: str) -> str:
     return f"{utc_dt.minute} {utc_dt.hour} * * *"
 
 
-def find_morning_report_job_id(cron_list_output: str) -> str | None:
+def find_morning_report_job(cron_list_output: str) -> tuple[str, str] | None:
     current_job_id: str | None = None
+    current_state: str = ""
     for line in cron_list_output.splitlines():
-        job_match = re.match(r"\s+([0-9a-f]{8,})\s+\[[^\]]+\]", line)
+        job_match = re.match(r"\s+([0-9a-f]{8,})\s+\[([^\]]+)\]", line)
         if job_match:
             current_job_id = job_match.group(1)
+            current_state = job_match.group(2).strip()
             continue
 
         if current_job_id and line.strip().startswith("Name:"):
             name = line.split(":", 1)[1].strip()
             if name == CRON_JOB_NAME:
-                return current_job_id
+                return current_job_id, current_state
 
     return None
+
+
+def find_morning_report_job_id(cron_list_output: str) -> str | None:
+    job = find_morning_report_job(cron_list_output)
+    return job[0] if job else None
+
+
+def build_cron_control_command(job_id: str, action: str) -> list[str]:
+    if action not in {"pause", "resume"}:
+        raise ValueError(f"unsupported cron action: {action}")
+    return ["hermes", "cron", "--accept-hooks", action, job_id]
 
 
 def sync_cron_if_needed(
@@ -268,7 +314,7 @@ def render_prepare_output(
     candidate_check = check_topic_config(candidate_data)
     requested_bullets = requested_config_bullets(
         current_check["available_config"],
-        candidate_check["available_config"],
+        candidate_data,
         requested,
     )
 
@@ -295,12 +341,92 @@ def render_prepare_output(
     }
 
 
+def render_cron_control_output(template_name: str, action: str, error: str = "") -> str:
+    data = json.loads(OUTPUT_TEMPLATES_PATH.read_text(encoding="utf-8"))
+    templates = data["steps"]["cron_control"]
+    template = templates[template_name]["next_action"]
+    return template.replace("{action}", action).replace("{error}", error)
+
+
+def control_cron(
+    action: str,
+    state_path: Path,
+    *,
+    list_output: str | None = None,
+    run_control: Any | None = None,
+) -> dict[str, Any]:
+    config_check = check_topic_config(state_path)
+    base: dict[str, Any] = {
+        "configured": config_check["configured"],
+        "available_config": config_check["available_config"],
+        "missing_config": config_check["missing_config"],
+    }
+
+    if list_output is None:
+        if state_path.resolve() != DEFAULT_CONFIG_PATH.resolve():
+            base["cron_state"] = "not_default_state"
+            base["next_action"] = render_cron_control_output("not_default_state", action)
+            return base
+        list_result = subprocess.run(
+            ["hermes", "cron", "list", "--all"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if list_result.returncode != 0:
+            error = (list_result.stderr or list_result.stdout).strip()
+            base["cron_state"] = "error"
+            base["next_action"] = render_cron_control_output("error", action, error=error)
+            return base
+        list_output = list_result.stdout
+
+    job = find_morning_report_job(list_output)
+    if not job:
+        template = "no_job_pause" if action == "pause" else "no_job_resume"
+        base["cron_state"] = "no_job"
+        base["next_action"] = render_cron_control_output(template, action)
+        return base
+
+    job_id, state = job
+    if action == "pause" and state == "paused":
+        base["cron_state"] = "already_paused"
+        base["next_action"] = render_cron_control_output("already_paused", action)
+        return base
+    if action == "resume" and state == "active":
+        base["cron_state"] = "already_running"
+        base["next_action"] = render_cron_control_output("already_running", action)
+        return base
+
+    if run_control is not None:
+        run_result = run_control(job_id, action)
+    else:
+        run_result = subprocess.run(
+            build_cron_control_command(job_id, action),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    if run_result.returncode != 0:
+        error = (run_result.stderr or run_result.stdout).strip()
+        base["cron_state"] = "error"
+        base["next_action"] = render_cron_control_output("error", action, error=error)
+        return base
+
+    base["cron_state"] = "paused" if action == "pause" else "resumed"
+    base["next_action"] = render_cron_control_output(base["cron_state"], action)
+    return base
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Prepare Morning Report config setup/update")
     parser.add_argument("--state", default=str(DEFAULT_CONFIG_PATH))
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--enable-cron", action="store_true")
-    parser.add_argument("--topic")
+    parser.add_argument("--pause-cron", dest="pause_cron", action="store_true", help="Pause the Morning Report cron job.")
+    parser.add_argument("--resume-cron", dest="resume_cron", action="store_true", help="Resume the Morning Report cron job.")
+    parser.add_argument("--topic", action="append", help="Replace the topic list. Repeat for multiple topics.")
+    parser.add_argument("--add-topic", dest="add_topic", action="append", help="Add one topic to the topic list.")
+    parser.add_argument("--remove-topic", dest="remove_topic", action="append", help="Remove one topic from the topic list.")
     parser.add_argument("--delivery-time", dest="delivery_time")
     parser.add_argument("--timezone")
     parser.add_argument("--report-style", dest="report_style")
@@ -309,6 +435,27 @@ def main() -> int:
     parser.add_argument("--delivery-channel", dest="delivery_channel")
     args = parser.parse_args()
     state_path = Path(args.state)
+
+    if args.pause_cron and args.resume_cron:
+        print(
+            json.dumps(
+                {"success": False, "error": "--pause-cron and --resume-cron are mutually exclusive"},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.pause_cron or args.resume_cron:
+        action = "pause" if args.pause_cron else "resume"
+        print(
+            json.dumps(
+                control_cron(action, state_path),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+        return 0
 
     print(
         json.dumps(

@@ -440,6 +440,7 @@ def collect_sources(
 # CLI
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect Morning Report sources via direct search/fetch APIs")
+    parser.add_argument("--topic", help="Collect sources for one configured topic.")
     parser.add_argument("--limit-per-call", type=int, default=10)
     parser.add_argument("--target-fetched", type=int, default=5)
     parser.add_argument("--search-timeout", type=int, default=30)
@@ -459,7 +460,25 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
 
-    topic = config_status["available_config"]["topic"]
+    configured_topics = config_status["available_config"]["topics"]
+    topic = _single_line(args.topic) if args.topic else ""
+    if not topic:
+        if len(configured_topics) != 1:
+            result = render_collect_output("multiple_topics")
+            result["topics"] = configured_topics
+            result["available_config"] = config_status["available_config"]
+            result["missing_config"] = config_status["missing_config"]
+            print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+            return 0
+        topic = configured_topics[0]
+    elif topic.casefold() not in {configured_topic.casefold() for configured_topic in configured_topics}:
+        result = render_collect_output("topic_not_configured")
+        result["topic"] = topic
+        result["topics"] = configured_topics
+        result["available_config"] = config_status["available_config"]
+        result["missing_config"] = config_status["missing_config"]
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        return 0
 
     try:
         result = collect_sources(
@@ -471,6 +490,7 @@ def main() -> int:
             max_fetch_bytes=args.max_fetch_bytes,
             min_text_chars=args.min_text_chars,
         )
+        result["topic"] = topic
         result["available_config"] = config_status["available_config"]
         result["missing_config"] = config_status["missing_config"]
     except Exception as exc:

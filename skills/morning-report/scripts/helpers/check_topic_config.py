@@ -12,7 +12,7 @@ DEFAULT_CONFIG_PATH = Path.home() / ".hermes/skills/productivity/morning-report/
 CANONICAL_STYLES = ("concise", "deep_analysis", "opportunities_risks")
 
 REQUIRED_CONFIG_FIELDS = [
-    "topic",
+    "topics",
     "delivery_time",
     "timezone",
     "report_style",
@@ -20,6 +20,27 @@ REQUIRED_CONFIG_FIELDS = [
     "audio_summary",
     "delivery_channel",
 ]
+
+
+def normalize_topics(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_topics = [value]
+    elif isinstance(value, list):
+        raw_topics = value
+    else:
+        raw_topics = []
+
+    topics: list[str] = []
+    seen: set[str] = set()
+    for raw_topic in raw_topics:
+        if not isinstance(raw_topic, str):
+            continue
+        topic = raw_topic.strip()
+        topic_key = topic.casefold()
+        if topic and topic_key not in seen:
+            topics.append(topic)
+            seen.add(topic_key)
+    return topics
 
 
 def check_topic_config(
@@ -47,6 +68,10 @@ def check_topic_config(
 
     for key in REQUIRED_CONFIG_FIELDS:
         value = data.get(key)
+        if key == "topics" and "topics" not in data:
+            value = data.get("topic")
+        if key == "topics":
+            value = normalize_topics(value)
         if isinstance(value, str):
             value = value.strip()
         if value:

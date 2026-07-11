@@ -31,20 +31,42 @@ def test_missing_file():
         assert result["configured"] is False
         assert result["available_config"] == {}
         assert "status" not in result["missing_config"]
-        assert "topic" in result["missing_config"]
+        assert "topics" in result["missing_config"]
 
 
 def test_partial_file():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "topic-config.json"
-        write_json(path, {"topic": "AI"})
+        write_json(path, {"topics": ["AI"]})
         result = check_topic_config(path)
         assert result["configured"] is False
-        assert result["available_config"]["topic"] == "AI"
+        assert result["available_config"]["topics"] == ["AI"]
         assert "delivery_time" in result["missing_config"]
 
 
 def test_complete_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "topic-config.json"
+        write_json(
+            path,
+            {
+                "topics": ["AI"],
+                "delivery_time": "07:00",
+                "timezone": "Asia/Ho_Chi_Minh",
+                "report_style": "concise",
+                "report_language": "Vietnamese",
+                "audio_summary": "Enabled",
+                "delivery_channel": "Telegram",
+            },
+        )
+        result = check_topic_config(path)
+        assert result["configured"] is True
+        assert result["missing_config"] == []
+        assert result["available_config"]["topics"] == ["AI"]
+        assert result["available_config"]["report_style"] == "concise"
+
+
+def test_legacy_topic_field_is_available_as_topics():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "topic-config.json"
         write_json(
@@ -61,8 +83,8 @@ def test_complete_file():
         )
         result = check_topic_config(path)
         assert result["configured"] is True
-        assert result["missing_config"] == []
-        assert result["available_config"]["report_style"] == "concise"
+        assert result["available_config"]["topics"] == ["AI"]
+        assert "topic" not in result["available_config"]
 
 
 def test_invalid_report_style_is_missing_report_style():
@@ -71,7 +93,7 @@ def test_invalid_report_style_is_missing_report_style():
         write_json(
             path,
             {
-                "topic": "AI",
+                "topics": ["AI"],
                 "delivery_time": "07:00",
                 "timezone": "Asia/Ho_Chi_Minh",
                 "report_style": "unknown style",

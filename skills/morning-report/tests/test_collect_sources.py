@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from collect_sources import (
     canonical_url, hostname, is_viable_url, write_source_text,
+    render_collect_output,
     BLOCKED_EXTENSIONS,
 )
 
@@ -74,6 +75,19 @@ def test_write_source_text_contract():
             "--- CONTENT ---\n\n"
         )
         assert written.endswith("Fetched body\n")
+
+
+def test_multiple_topics_output_template():
+    result = render_collect_output("multiple_topics")
+    assert result["success"] is False
+    assert "once per topic" in result["next_action"]
+    assert result["topics"] == []
+
+
+def test_topic_not_configured_output_template():
+    result = render_collect_output("topic_not_configured")
+    assert result["success"] is False
+    assert "not in the configured topics" in result["next_action"]
 
 
 # ── Run ──

@@ -3,13 +3,13 @@
   "steps": {
     "prepare_config": {
       "configured": {
-        "next_action": "Use available_config as the full Morning Report config after applying requested values. Ask the user to confirm before saving. {requested_config_section}After confirmation, rerun prepare_config.py with --save --enable-cron and the same requested values. Saving will create the Morning Report cron job if it does not exist, or update the existing cron job when delivery_time or timezone changes."
+        "next_action": "Use available_config as the full Morning Report config after applying requested values. Reply in the user's language. Ask the user to confirm before saving. {requested_config_section}After confirmation, rerun prepare_config.py with --save --enable-cron and the same requested values. Saving will create the Morning Report cron job if it does not exist, or update the existing cron job when delivery_time or timezone changes."
       },
       "needs_config": {
-        "next_action": "Use available_config as the partial Morning Report config after applying requested values. Reply in the user's language. {requested_config_section}Ask only for fields that appear in missing_config, with one short Telegram-friendly bullet per line. Use natural suggestions, not fixed wording. Format missing-field questions like this:\n• topic: ask which topic to track, with 2-3 relevant examples.\n• delivery_time: ask whether a common morning time works or another time is preferred.\n• timezone: ask whether the likely/current timezone is correct or another timezone should be used.\n• report_style: if report_style is absent from available_config, ask which style fits best; if report_style is present, ask to adjust it to exactly one of concise, deep_analysis, or opportunities_risks.\n• report_language: ask which language to use, with 1-2 natural examples.\n• audio_summary: ask whether audio summary should be enabled.\n• delivery_channel: ask whether Telegram is okay or another channel is preferred.\nDo not save until the full resulting config is clearly confirmed."
+        "next_action": "Use available_config as the partial Morning Report config after applying requested values. Reply in the user's language. {requested_config_section}Ask only for fields that appear in missing_config, with one short Telegram-friendly bullet per line. Use natural suggestions, not fixed wording. Format missing-field questions like this:\n• topics: ask which topic or topics to track, with 2-3 relevant examples.\n• delivery_time: ask whether a common morning time works or another time is preferred.\n• timezone: ask whether the likely/current timezone is correct or another timezone should be used.\n• report_style: if report_style is absent from available_config, ask which style fits best; if report_style is present, ask to adjust it to exactly one of concise, deep_analysis, or opportunities_risks.\n• report_language: ask which language to use, with 1-2 natural examples.\n• audio_summary: ask whether audio summary should be enabled.\n• delivery_channel: ask whether Telegram is okay or another channel is preferred.\nDo not save until the full resulting config is clearly confirmed."
       },
       "saved": {
-        "next_action": "The Morning Report config has been saved using available_config.{requested_config_section}{cron_sync_section}"
+        "next_action": "The Morning Report config has been saved using available_config. Reply in the user's language.{requested_config_section}{cron_sync_section}"
       },
       "save_blocked": {
         "next_action": "The Morning Report config was not saved because missing_config is not empty. Reply in the user's language. {requested_config_section}Ask only for fields that appear in missing_config, with one short Telegram-friendly bullet per line. Use natural suggestions, not fixed wording. After the user provides the missing fields and confirms, rerun prepare_config.py with --save --enable-cron and the complete requested values."
@@ -20,9 +20,18 @@
         "configured": false,
         "next_action": "Stop. Tell the user in their language what configuration is missing, based on missing_config."
       },
+      "multiple_topics": {
+        "success": false,
+        "next_action": "Run collect_sources.py once per topic using --topic with each value from topics. Each topic produces a separate report.",
+        "topics": []
+      },
+      "topic_not_configured": {
+        "success": false,
+        "next_action": "Stop. Tell the user in their language that the requested topic is not in the configured topics. Ask whether to add it first."
+      },
       "success_with_sources": {
         "success": true,
-        "next_action": "Read every .txt file in {run_dir}/sources/ (SOURCE_TITLE, SOURCE_URL, content), then write {run_dir}/report.md following references/report-styles.md.",
+        "next_action": "Read every .txt file in {run_dir}/sources/ (SOURCE_TITLE, SOURCE_URL, content), then write {run_dir}/report.md following references/report-styles.md. Make the report title identify the topic.",
         "run_dir": "{run_dir}"
       },
       "no_usable_sources": {
@@ -42,6 +51,32 @@
       },
       "invalid": {
         "next_action": "Fix the report file using issues, then re-run report validation."
+      }
+    },
+    "cron_control": {
+      "paused": {
+        "next_action": "The Morning Report daily schedule was paused. Reply in the user's language. Tell them their config (topics, delivery_time, timezone, report_style, report_language, audio_summary, delivery_channel from available_config) is preserved and the report will not be sent until they ask to resume the morning report."
+      },
+      "resumed": {
+        "next_action": "The Morning Report daily schedule was resumed. Reply in the user's language. Tell them the next report will be sent at the configured delivery_time and timezone (from available_config) and that their config is unchanged."
+      },
+      "no_job_pause": {
+        "next_action": "Stop. Tell the user in their language that there is no daily schedule to pause. Ask whether they want to set up the Morning Report first."
+      },
+      "no_job_resume": {
+        "next_action": "Stop. Tell the user in their language that there is no paused schedule to resume. Ask whether they want to set up the Morning Report first."
+      },
+      "already_paused": {
+        "next_action": "Tell the user in their language that the Morning Report schedule was already paused. No change was made. Mention they can resume it anytime by asking to resume the morning report."
+      },
+      "already_running": {
+        "next_action": "Tell the user in their language that the Morning Report schedule is already running. No change was made. Mention they can pause it anytime by asking to pause the morning report."
+      },
+      "not_default_state": {
+        "next_action": "The cron {action} was not applied because --state is not the default config path. Required action: {action} the Morning Report cron job."
+      },
+      "error": {
+        "next_action": "Stop. Tell the user in their language that the schedule could not be toggled because the cron {action} command failed: {error}. Suggest trying again later."
       }
     }
   }
