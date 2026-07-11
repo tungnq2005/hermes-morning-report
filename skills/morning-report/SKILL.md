@@ -35,14 +35,15 @@ Choose exactly one workflow below and follow it step by step.
 
 ## Update Config
 
-Use when the user wants to set up Morning Report for the first time or change Morning Report config.
+Use when the user wants to set up Morning Report for the first time or change Morning Report config. Config is **per-topic**: each topic owns its own delivery time, timezone, style, language, audio, and channel, and maps to its own cron job and its own delivered report.
 
 Supported flags:
 
 | Setting          | Flag                                      |
 | ---------------- | ----------------------------------------- |
-| Replace topics   | `--topic "<topic>"` (repeatable)          |
-| Add topic        | `--add-topic "<topic>"`                   |
+| Change one topic | `--topic "<topic>"` (selector for field changes) |
+| All topics       | `--all-topics` (apply field changes to every topic) |
+| Add topic        | `--add-topic "<topic>"` (inherits defaults) |
 | Remove topic     | `--remove-topic "<topic>"`                |
 | Delivery time    | `--delivery-time "<time>"`                |
 | Timezone         | `--timezone "<tz>"`                       |
@@ -51,12 +52,14 @@ Supported flags:
 | Audio summary    | `--audio-summary "<Enabled|Disabled>"`    |
 | Delivery channel | `--delivery-channel "<channel>"`          |
 
+Field changes (delivery time, timezone, style, language, audio, channel) require a target: `--topic "<topic>"` for one topic or `--all-topics` for every topic. Adding/removing topics uses `--add-topic`/`--remove-topic`.
+
 Config-related requests:
 
 - Set up Morning Report.
 - Change, add, or remove topics.
-- Change delivery time, timezone, report style, report language, audio summary, or delivery channel.
-- Enable or update the daily schedule.
+- Change per-topic delivery time, timezone, report style, report language, audio summary, or delivery channel.
+- Enable or update the daily schedule (one cron job per topic).
 
 Not config-related:
 
@@ -64,20 +67,40 @@ Not config-related:
 - Ask for current status, cron status, recent history, or troubleshooting info.
 - Ask how the skill works without requesting a config change.
 
+### Step 0: Read current config and validate the request
+
+Before applying any change, read the current status:
+
+```bash
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py
+```
+
+Read `available_config.topics` (current per-topic configs) and `missing_config`. Validate the user's request against it before proceeding:
+- If the user names a topic that is not configured (and did not ask to add it), ask whether to add it first.
+- If the request is ambiguous (e.g., "change the 9am report" but no topic is at 9am, or it is unclear which topic or field), ask for clarification.
+- If a value is invalid (e.g., a style that is not `concise`, `deep_analysis`, or `opportunities_risks`), ask for a valid one.
+
+Only proceed to Step 1 once the request is unambiguous and refers to existing or explicitly new topics.
+
 ### Step 1: Prepare config
 
-Combine ALL requested changes into a single `prepare_config.py` call with all relevant flags. Run without `--save`.
+Combine ALL requested changes into a single `prepare_config.py` call with the relevant flags. Run without `--save`.
 
 Examples:
 
 ```bash
+# Status (no changes)
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py
-python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --topic "World Cup" --report-language "English"
+# Change one topic's style
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --topic "AI" --report-style "deep_analysis"
+# Change a field for every topic
+python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --all-topics --timezone "Asia/Ho_Chi_Minh"
+# Add / remove a topic
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --add-topic "Gold prices"
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --remove-topic "Weather"
 ```
 
-Read the JSON output and follow `next_action`. Use `available_config` as the Morning Report config after applying the requested values. Do not save until the user clearly confirms and `missing_config` is empty.
+Read the JSON output and follow `next_action`. Use `available_config.topics` as the per-topic config after applying the requested values. Present `requested_changes` as bullets and tell the user any `warnings`. Do not save until the user clearly confirms and `missing_config` is empty.
 
 ### Step 2: Save confirmed config
 
@@ -87,7 +110,7 @@ Only after the user confirms and the config is complete, rerun `prepare_config.p
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --save --enable-cron <confirmed config flags>
 ```
 
-Read the JSON output and follow `next_action`. Saving includes creating the Morning Report cron job if it does not exist, or updating the existing cron job when `delivery_time` or `timezone` changes.
+Read the JSON output and follow `next_action`. Saving reconciles one cron job per configured topic: it creates jobs for new topics, removes jobs for removed topics (and the legacy single "Morning Report" job if present), and updates schedules when a topic's `delivery_time` or `timezone` changes. Each per-topic cron job runs only that topic and delivers its own report.
 
 ---
 
@@ -95,7 +118,7 @@ Read the JSON output and follow `next_action`. Saving includes creating the Morn
 
 ## Pause / Resume
 
-Use when the user wants to pause or resume the daily Morning Report schedule without changing config. Config (`state/topic-config.json`) is preserved — only the cron job is toggled.
+Use when the user wants to pause or resume the daily Morning Report schedule without changing config. Config (`state/topic-config.json`) is preserved — all Morning Report cron jobs (one per topic) are toggled together.
 
 ### Step 1: Pause or resume the schedule
 
@@ -107,7 +130,7 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py -
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --resume-cron
 ```
 
-Read the JSON output and follow `next_action`. `cron_state` will be one of: `paused`, `resumed`, `no_job`, `already_paused`, `already_running`, `error`. Config is preserved on both pause and resume.
+Read the JSON output and follow `next_action`. `cron_state` will be one of: `paused`, `resumed`, `no_job`, `already_paused`, `already_running`, `error`; `details` lists per-job results. Config is preserved on both pause and resume.
 
 ---
 
@@ -120,13 +143,17 @@ Use for manual, test, or cron report runs. Follow each step in order.
 **Cron runs:** send no progress or acknowledgement messages before the final report.
 **Manual runs:** at most one short acknowledgement before work begins.
 
+**Single-topic cron runs:** each per-topic cron job is prompted to process only one topic. If the run is for a single topic, run Step 2 with `--topic "<that topic>"` once, then Step 3 and Step 4 for it; do not loop over all configured topics.
+
+**Final response content:** your final response is what gets delivered to Telegram. For each topic you process, your response MUST START with that topic's report title (the `# ` heading) and contain only: the `report.md` content verbatim (including the `### Sources` footer), then a line `MEDIA:<run_dir>/morning-report.mp3` for its audio. Do NOT write any line before the title — no "All steps complete", no "Delivering the final report", no progress or announcement text, no summary.
+
 ### Step 1: Check config
 
 ```bash
 python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py
 ```
 
-If `configured` is false, follow `next_action` and stop. If configured is true, keep `available_config.topics` as `TOPICS`. Each topic in `TOPICS` must produce its own report, and its own audio when audio is enabled.
+If `configured` is false, follow `next_action` and stop. If configured is true, keep the topic names from `available_config.topics` as `TOPICS`. Each topic in `TOPICS` must produce its own report, and its own audio when audio is enabled.
 
 ### Step 2: Collect sources for one topic
 

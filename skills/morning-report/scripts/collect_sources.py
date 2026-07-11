@@ -30,7 +30,9 @@ from helpers.check_topic_config import check_topic_config
 
 
 # Paths and runtime defaults
-SCRIPT_DIR = Path(__file__).resolve().parent
+# Use .absolute() (not .resolve()) so the ~/.hermes invocation path is preserved.
+# .resolve() follows the symlink to the OpenClaw repo path, which breaks MEDIA delivery.
+SCRIPT_DIR = Path(__file__).absolute().parent
 SKILL_DIR = SCRIPT_DIR.parent
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 CONFIG_PATH = SKILL_DIR / "state" / "topic-config.json"
@@ -460,7 +462,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
 
-    configured_topics = config_status["available_config"]["topics"]
+    configured_topics = [t["topic"] for t in config_status["available_config"]["topics"]]
     topic = _single_line(args.topic) if args.topic else ""
     if not topic:
         if len(configured_topics) != 1:
