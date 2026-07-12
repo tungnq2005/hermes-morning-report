@@ -4,8 +4,8 @@
 The agent runs this helper, receives a small JSON payload with the run
 directory and next action, then reads source text files from that run directory.
 
-Search currently uses Exa directly. Fetching uses Firecrawl first and falls
-back to Python urllib.
+Search uses Exa first and falls back to Brave. Fetching uses Firecrawl first
+and falls back to Python urllib.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from helpers.check_topic_config import check_topic_config
 
 # Paths and runtime defaults
 # Use .absolute() (not .resolve()) so the ~/.hermes invocation path is preserved.
-# .resolve() follows the symlink to the OpenClaw repo path, which breaks MEDIA delivery.
+# .resolve() follows the symlink to the repo path (openclaw-morning_report/...), which breaks MEDIA delivery.
 SCRIPT_DIR = Path(__file__).absolute().parent
 SKILL_DIR = SCRIPT_DIR.parent
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
@@ -42,6 +42,8 @@ OUTPUT_TEMPLATES_PATH = SKILL_DIR / "references" / "workflow-output-templates.js
 
 # API endpoints
 EXA_API_URL = "https://api.exa.ai/search"
+BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
+BRAVE_FRESHNESS = "pd"  # past day, matches Exa's 24h window
 FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape"
 
 
@@ -152,6 +154,55 @@ def search_via_exa(query: str, limit: int, timeout: int) -> list[dict[str, Any]]
     if not isinstance(results, list):
         raise RuntimeError("Exa returned invalid results")
     return [result for result in results if isinstance(result, dict)]
+
+
+def search_via_brave(query: str, limit: int, timeout: int) -> list[dict[str, Any]]:
+    """Search via Brave Search API directly. Returns Exa-like items: [{"title", "url"}]."""
+    api_key = os.environ.get("BRAVE_SEARCH_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("BRAVE_SEARCH_API_KEY not set")
+
+    params = urllib.parse.urlencode({"q": query, "count": limit, "freshness": BRAVE_FRESHNESS})
+    request = urllib.request.Request(
+        f"{BRAVE_API_URL}?{params}",
+        headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read())
+    except Exception as exc:
+        raise RuntimeError(f"Brave search failed: {exc}") from exc
+
+    results = (data.get("web") or {}).get("results", [])
+    if not isinstance(results, list):
+        raise RuntimeError("Brave returned invalid results")
+    items: list[dict[str, Any]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        url = str(result.get("url", "")).strip()
+        if url:
+            items.append({"title": str(result.get("title", "")), "url": url})
+    return items
+
+
+def run_search_chain(
+    topic: str,
+    limit: int,
+    timeout: int,
+    searchers: tuple,
+) -> tuple[list[dict[str, Any]], str, bool]:
+    """Try each searcher in order; return items, engine name, and whether any provider responded."""
+    provider_responded = False
+    for searcher in searchers:
+        try:
+            got = searcher(topic, limit, timeout)
+        except Exception:
+            continue
+        provider_responded = True
+        if got:
+            return got, getattr(searcher, "__name__", "") or "searcher", provider_responded
+    return [], "", provider_responded
 
 
 # URL helpers
@@ -389,17 +440,16 @@ def collect_sources(
     fetch_timeout: int = 20,
     max_fetch_bytes: int = 500_000,
     min_text_chars: int = 400,
+    searchers: tuple = (search_via_exa, search_via_brave),
 ) -> dict[str, Any]:
     source_files: list[Path] = []
     seen_urls: set[str] = set()
     run_dir = run_dir or make_run_dir()
-    search_failed = False
 
-    try:
-        items = search_via_exa(topic, limit_per_call, search_timeout)
-    except Exception:
-        search_failed = True
-        items = []
+    items, search_engine, provider_responded = run_search_chain(
+        topic, limit_per_call, search_timeout, searchers
+    )
+    search_failed = not provider_responded
 
     for item in items:
         if len(source_files) >= target_fetched:
@@ -436,7 +486,9 @@ def collect_sources(
         template_name = "search_provider_failed"
     else:
         template_name = "no_usable_sources"
-    return render_collect_output(template_name, run_dir)
+    result = render_collect_output(template_name, run_dir)
+    result["search_engine"] = search_engine
+    return result
 
 
 # CLI

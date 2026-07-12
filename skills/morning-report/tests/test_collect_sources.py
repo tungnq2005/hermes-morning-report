@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from collect_sources import (
     canonical_url, hostname, is_viable_url, write_source_text,
-    render_collect_output,
+    collect_sources, render_collect_output, run_search_chain,
     BLOCKED_EXTENSIONS,
 )
 
@@ -91,6 +91,85 @@ def test_topic_not_configured_output_template():
 
 
 # ── Run ──
+def test_run_search_chain_uses_first_nonempty():
+    def exa_ok(topic, limit, timeout):
+        return [{"title": "exa1", "url": "https://exa.com/1"}]
+    def brave_ok(topic, limit, timeout):
+        return [{"title": "brave1", "url": "https://brave.com/1"}]
+    items, engine, provider_responded = run_search_chain("t", 10, 30, (exa_ok, brave_ok))
+    assert items == [{"title": "exa1", "url": "https://exa.com/1"}]
+    assert engine == "exa_ok"
+    assert provider_responded is True
+
+
+def test_run_search_chain_falls_back_when_first_raises():
+    def exa_down(topic, limit, timeout):
+        raise RuntimeError("exa down")
+    def brave_ok(topic, limit, timeout):
+        return [{"title": "brave1", "url": "https://brave.com/1"}]
+    items, engine, provider_responded = run_search_chain("t", 10, 30, (exa_down, brave_ok))
+    assert items == [{"title": "brave1", "url": "https://brave.com/1"}]
+    assert engine == "brave_ok"
+    assert provider_responded is True
+
+
+def test_run_search_chain_skips_empty_result_and_falls_back():
+    def exa_empty(topic, limit, timeout):
+        return []
+    def brave_ok(topic, limit, timeout):
+        return [{"title": "brave1", "url": "https://brave.com/1"}]
+    items, engine, provider_responded = run_search_chain("t", 10, 30, (exa_empty, brave_ok))
+    assert engine == "brave_ok"
+    assert provider_responded is True
+
+
+def test_run_search_chain_all_empty_marks_provider_responded():
+    def exa_empty(topic, limit, timeout):
+        return []
+    def brave_empty(topic, limit, timeout):
+        return []
+    items, engine, provider_responded = run_search_chain("t", 10, 30, (exa_empty, brave_empty))
+    assert items == []
+    assert engine == ""
+    assert provider_responded is True
+
+
+def test_run_search_chain_all_fail_returns_empty():
+    def exa_down(topic, limit, timeout):
+        raise RuntimeError("exa down")
+    def brave_down(topic, limit, timeout):
+        raise RuntimeError("brave down")
+    items, engine, provider_responded = run_search_chain("t", 10, 30, (exa_down, brave_down))
+    assert items == []
+    assert engine == ""
+    assert provider_responded is False
+
+
+def test_run_search_chain_no_searchers():
+    items, engine, provider_responded = run_search_chain("t", 10, 30, ())
+    assert items == []
+    assert engine == ""
+    assert provider_responded is False
+
+
+def test_collect_sources_empty_provider_result_is_no_usable_sources():
+    def exa_empty(topic, limit, timeout):
+        return []
+    with tempfile.TemporaryDirectory() as tmp:
+        result = collect_sources("t", run_dir=Path(tmp), searchers=(exa_empty,))
+    assert result["success"] is False
+    assert "not enough usable fresh sources" in result["next_action"]
+
+
+def test_collect_sources_all_providers_error_is_search_provider_failed():
+    def exa_down(topic, limit, timeout):
+        raise RuntimeError("exa down")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = collect_sources("t", run_dir=Path(tmp), searchers=(exa_down,))
+    assert result["success"] is False
+    assert "search provider failed" in result["next_action"]
+
+
 for name, fn in list(globals().items()):
     if name.startswith("test_"):
         check(name, fn)

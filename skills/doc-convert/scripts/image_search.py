@@ -25,7 +25,7 @@ API_URL = "https://api.openverse.org/v1/images/"
 # the nc/nd variants would bar commercial use and cropping.
 LICENSES = "cc0,pdm,by"
 
-USER_AGENT = "openclaw-doc-convert/1.0"
+USER_AGENT = "hermes-doc-convert/1.0"
 SEARCH_TIMEOUT = 8
 # Openverse hands back originals hosted on Flickr, which are slow enough that 12s
 # timed out on a real run. Two tries at 20s each still bounds a stuck deck.

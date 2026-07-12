@@ -4,7 +4,7 @@ Mục tiêu (AC D3): sau buổi này, khách **tự thao tác được** các vi
 Goal (D3 AC): after this session, the client can **operate the basics themselves**.
 
 **Chuẩn bị trước / Prep beforehand**
-- Gateway đang chạy trên VPS (`healthcheck.sh` → `ok:true`).
+- Gateway đang chạy trên VPS (`healthcheck_hermes.sh` → `ok:true`).
 - Đã đăng nhập dashboard sẵn trên trình duyệt (khỏi dán token lúc demo).
 - Mở sẵn Telegram với `@your_bot`.
 - In/mở sẵn `chat-commands.md` cho khách.
@@ -29,7 +29,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 
 ## Phút 20–25 — Vận hành & sự cố / Ops & troubleshooting
 - Chỉ `chat-commands.md` (bảng lệnh 1 trang) — "cần gì cứ nhắn tự nhiên".
-- Với người quản trị: chỉ `operator-runbook` — restart gateway, xem log, đổi key, `healthcheck.sh`.
+- Với người quản trị: chỉ `operator-runbook` — restart gateway, xem log, đổi key, `healthcheck_hermes.sh`.
 - Nói rõ known limitations (TTS keyless, Google riêng tư chưa có).
 
 ## Phút 25–30 — Hỏi đáp & bàn giao tài liệu / Q&A & handoff
@@ -44,7 +44,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 - [ ] Morning report gửi được text + audio 3–5 phút; cron đặt đúng giờ gửi đã cấu hình (theo timezone của khách).
 - [ ] Doc-convert: docx↔pptx↔pdf + narrate chạy được qua chat.
 - [ ] `secrets audit --check` → clean (plaintext=0).
-- [ ] `healthcheck.sh` → `ok:true`.
+- [ ] `healthcheck_hermes.sh` → `ok:true`.
 - [ ] Ổn định ≥48h: ≥2 lần gửi sáng thành công, log không lỗi lặp.
 - [ ] Khách tự thao tác được các việc cơ bản trong buổi này.
 - [ ] Đã bàn giao đủ tài liệu song ngữ.

@@ -12,13 +12,14 @@ metadata:
 required_environment_variables:
 
 - EXA_API_KEY
+- BRAVE_SEARCH_API_KEY
 - FIRECRAWL_API_KEY
 
 ---
 
 # Morning Report
 
-Collects 24h updates for one or more configured topics via Exa and sends a separate structured daily briefing to Telegram for each topic, with optional MP3 audio. Config in `state/topic-config.json`.
+Collects 24h updates for one or more configured topics via Exa search with Brave fallback, then sends a separate structured daily briefing to Telegram for each topic, with optional MP3 audio. Config in `state/topic-config.json`.
 
 ## Workflow Router
 
