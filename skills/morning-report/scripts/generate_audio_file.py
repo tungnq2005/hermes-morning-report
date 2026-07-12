@@ -476,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text-file", required=True, help="Text file to synthesize, or '-' for stdin")
     parser.add_argument(
         "--output",
-        help="Final MP3 output path. Defaults to run_dir/morning-report.mp3 when --run-dir is set, otherwise /tmp/morning-report.mp3",
+        help="Final MP3 output path. Use a per-topic safe filename (ASCII lowercase, hyphens, no spaces/diacritics), e.g. <run_dir>/morning-report-<topic-slug>.mp3. Defaults to run_dir/morning-report.mp3 when --run-dir is set, otherwise /tmp/morning-report.mp3",
     )
     parser.add_argument("--run-dir", help="History run directory for recording audio metadata")
     parser.add_argument(

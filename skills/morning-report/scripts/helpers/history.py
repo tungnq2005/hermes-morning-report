@@ -102,7 +102,7 @@ def record_report_validation(run_dir: Path, report_file: Path, ok: bool) -> dict
 
 
 def record_audio_validation(run_dir: Path, audio_file: Path) -> dict[str, Any]:
-    audio_path = _copy_into_run_dir(audio_file, run_dir, AUDIO_FILE)
+    audio_path = _copy_into_run_dir(audio_file, run_dir, audio_file.name)
     manifest = load_manifest(run_dir)
     _ensure_manifest_defaults(manifest, run_dir)
     manifest.setdefault(
@@ -117,7 +117,7 @@ def record_audio_validation(run_dir: Path, audio_file: Path) -> dict[str, Any]:
     existing_audio = manifest.get("audio")
     audio_meta: dict[str, Any] = {
         "status": "validated",
-        "file": AUDIO_FILE,
+        "file": audio_file.name,
         "bytes": audio_path.stat().st_size,
         "sha256": _short_sha256(audio_path),
     }

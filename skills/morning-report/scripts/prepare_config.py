@@ -41,7 +41,7 @@ CRON_PROMPT_TEMPLATE = (
     "then Step 3 and Step 4. "
     "Your final response MUST START with the report's title line (the '# ' heading) and "
     "contain ONLY: the report.md content verbatim (including the ### Sources footer), "
-    "then a line MEDIA:<run_dir>/morning-report.mp3. "
+    "then a line MEDIA:<the MP3 output path you passed to generate_audio_file.py in Step 4>. "
     "Do NOT write any line before the title — no 'All steps complete', no 'Delivering the final report', "
     "no 'Here is the report', no progress or announcement text, no summary."
 )

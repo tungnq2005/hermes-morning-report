@@ -47,7 +47,7 @@
     },
     "validate_report": {
       "valid": {
-        "next_action": "Send the validated report to the user via Telegram. Include the report.md content verbatim (including the ### Sources footer) and, if audio was generated, a line MEDIA:<run_dir>/morning-report.mp3. No preamble, no 'Delivering final output:', no summary."
+        "next_action": "Send the validated report to the user via Telegram. Include the report.md content verbatim (including the ### Sources footer) and, if audio was generated, a line MEDIA:<the audio MP3 output path from Step 4>. No preamble, no 'Delivering final output:', no summary."
       },
       "invalid": {
         "next_action": "Fix the report file using issues, then re-run report validation."
