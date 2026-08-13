@@ -104,6 +104,33 @@ class ExtractTests(unittest.TestCase):
         self.assertIn("## Phần một", out)
         self.assertIn("- ý một", out)
 
+    def test_markdown_inline_markers_never_reach_the_slides(self):
+        """Slides hold plain strings, so `**` has nothing to become and used to be shown."""
+        md_path = os.path.join(self.tmp, "styled.md")
+        with open(md_path, "w", encoding="utf-8") as fh:
+            fh.write(
+                "# Hướng dẫn **nhanh**\n\n"
+                "---\n\n"
+                "## Cách dùng\n\n"
+                "- **Đầu vào**: Word (`.docx`), *nghiêng*, ~~bỏ~~\n"
+                "- Xem [tài liệu](https://example.org/doc) để biết thêm\n"
+                "- ***rất quan trọng***\n\n"
+                "> Đoạn trích dẫn có `mã` bên trong.\n"
+            )
+        doc = doc_io.extract(md_path)
+        texts = [b["text"] for b in doc["blocks"]]
+        joined = doc["title"] + " " + " ".join(texts)
+
+        for marker in ("**", "~~", "`", "](", "---"):
+            self.assertNotIn(marker, joined, f"raw {marker!r} survived extraction")
+        self.assertEqual(doc["title"], "Hướng dẫn nhanh")
+        self.assertIn("Đầu vào: Word (.docx), nghiêng, bỏ", texts)
+        self.assertIn("Xem tài liệu để biết thêm", texts)
+        self.assertIn("rất quan trọng", texts)
+        self.assertIn("Đoạn trích dẫn có mã bên trong.", texts)
+        # the rule is a separator, not a bullet and not a paragraph of its own
+        self.assertNotIn("---", texts)
+
     def test_unsupported_ext(self):
         path = os.path.join(self.tmp, "x.xyz")
         with open(path, "w") as fh:
@@ -151,13 +178,13 @@ class BuildTests(unittest.TestCase):
         make_sample_docx(src)
         doc = doc_io.extract(src)
         out = os.path.join(self.tmp, "built.docx")
-        convert.build_docx(doc, doc_io.outline_sections(doc), out)
+        convert.build_docx(doc, out)
 
         with zipfile.ZipFile(out) as z:
             styles = z.read("word/styles.xml").decode("utf-8")
             numbering = z.read("word/numbering.xml").decode("utf-8")
 
-        for style_id in ("Normal", "ListBullet", "Heading1", "Title"):
+        for style_id in ("Normal", "ListBullet", "Heading1", "Heading2", "Title"):
             match = re.search(r'<w:style [^>]*w:styleId="%s".*?</w:style>' % style_id, styles, re.S)
             self.assertIsNotNone(match, f"style {style_id} missing")
             rfonts = re.search(r"<w:rFonts([^/>]*)/>", match.group(0))
@@ -169,6 +196,39 @@ class BuildTests(unittest.TestCase):
         self.assertNotIn(convert.SYMBOL_BULLET, numbering, "Symbol-font bullet survived")
         self.assertIn(convert.UNICODE_BULLET, numbering, "U+2022 bullet missing")
         self.assertNotIn('w:ascii="Symbol"', numbering, "numbering still asks for the Symbol font")
+
+    def test_built_docx_keeps_prose_out_of_the_bullet_list(self):
+        """build_docx used to reuse the slide outline, which turns every paragraph into
+        sentence-sized bullets. The Word file then contained no body text at all."""
+        import convert
+
+        md = os.path.join(self.tmp, "mixed.md")
+        with open(md, "w", encoding="utf-8") as fh:
+            fh.write(
+                "# Báo cáo\n\n"
+                "## Phần một\n\n"
+                "Đây là một đoạn văn xuôi bình thường. Nó có hai câu.\n\n"
+                "- ý gạch đầu dòng một\n"
+                "- ý gạch đầu dòng hai\n"
+            )
+        out = os.path.join(self.tmp, "mixed.docx")
+        convert.build_docx(doc_io.extract(md), out)
+
+        import docx
+        styled = [(p.style.name, p.text) for p in docx.Document(out).paragraphs if p.text.strip()]
+        by_style = {}
+        for style, text in styled:
+            by_style.setdefault(style, []).append(text)
+
+        self.assertIn("Normal", by_style, "prose must stay body text, not become a bullet")
+        self.assertEqual(by_style["Normal"],
+                         ["Đây là một đoạn văn xuôi bình thường. Nó có hai câu."],
+                         "the paragraph must survive whole, not split per sentence")
+        self.assertEqual(by_style["List Bullet"],
+                         ["ý gạch đầu dòng một", "ý gạch đầu dòng hai"])
+        # `##` is a level-2 heading and must stay one; the old code flattened every
+        # section title to Heading 1.
+        self.assertEqual(by_style["Heading 2"], ["Phần một"])
 
     def test_convert_cli_docx_to_pptx(self):
         src = os.path.join(self.tmp, "sample.docx")
@@ -236,6 +296,168 @@ class BuildTests(unittest.TestCase):
         ]
         # title(0) + agenda(1) + sections(2,3,4): only the second section carries a picture
         self.assertEqual(picture_slides, [3])
+
+    def test_pptx_keeps_image_slots_aligned_when_a_section_spans_slides(self):
+        """A section split across slides must not eat the next sections' pictures."""
+        doc = {"title": "Guide", "blocks": [{"kind": "para", "text": "english sample text"}]}
+        sections = [
+            {"title": "Alpha", "items": [f"a{i}" for i in range(8)]},  # 8 items -> 2 slides
+            {"title": "Beta", "items": ["b1"]},
+            {"title": "Gamma", "items": ["c1"]},
+        ]
+        pngs = [write_tiny_png(os.path.join(self.tmp, f"{n}.png")) for n in "abc"]
+        out = os.path.join(self.tmp, "spanning.pptx")
+        stats = build_pptx.build(doc, sections, out, min_slides=1, images=pngs)
+
+        from pptx import Presentation
+        carried = {
+            slide.shapes.title.text
+            for slide in Presentation(out).slides
+            if slide.shapes.title is not None
+            and any(sh.shape_type == 13 for sh in slide.shapes)  # 13 == PICTURE
+        }
+        self.assertEqual(carried, {"Alpha", "Beta", "Gamma"})
+        self.assertNotIn("Alpha (cont.)", carried, "continuation slide stole the next picture")
+        self.assertEqual(stats["images_used"], 3)
+
+    def test_pptx_slides_carry_real_placeholders(self):
+        """Free-floating textboxes left the outline view empty and broke theme changes."""
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        out = os.path.join(self.tmp, "structured.pptx")
+        build_pptx.build(doc, doc_io.outline_sections(doc), out)
+
+        from pptx import Presentation
+        prs = Presentation(out)
+        for index, slide in enumerate(prs.slides, 1):
+            self.assertIsNotNone(slide.shapes.title, f"slide {index} has no title placeholder")
+            self.assertTrue(slide.shapes.title.text.strip(), f"slide {index} title is empty")
+            self.assertNotEqual(slide.slide_layout.name, "Blank", f"slide {index} is unstructured")
+
+    def test_pptx_content_spans_the_widescreen_canvas(self):
+        """The template is 4:3. Widening slide_width alone leaves every placeholder in
+        the old 10" box, stranding 3.8" of dead space down the right-hand edge."""
+        from pptx import Presentation
+        from pptx.enum.text import PP_ALIGN
+        from pptx.util import Inches
+
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        out = os.path.join(self.tmp, "wide.pptx")
+        png = write_tiny_png(os.path.join(self.tmp, "p.png"))
+        sections = doc_io.outline_sections(doc)
+        build_pptx.build(doc, sections, out, images=[png] * len(sections))
+
+        prs = Presentation(out)
+        slide_w = prs.slide_width
+        for index, slide in enumerate(prs.slides, 1):
+            edges = []
+            for shape in slide.shapes:
+                right = shape.left + shape.width
+                self.assertLessEqual(right, slide_w,
+                                     f"slide {index}: {shape.name} overruns the canvas")
+                edges.append(right)
+            # Content confined to the old 4:3 box stops at 9.5"; the canvas is 13.333",
+            # so anything short of ~11" means the right-hand strip was left dead.
+            self.assertGreater(max(edges), Inches(11),
+                               f"slide {index}: right-hand strip is unused")
+            title = slide.shapes.title
+            self.assertIsNotNone(title)
+            self.assertEqual(title.text_frame.paragraphs[0].alignment, PP_ALIGN.LEFT)
+
+    def test_pptx_titles_keep_their_own_casing(self):
+        """The Section Header master upper-cases its title, which mangles Vietnamese."""
+        doc = {"title": "Báo cáo", "blocks": [{"kind": "para", "text": "nội dung tiếng Việt"}]}
+        sections = [{"title": "Chuyển đổi tài liệu", "items": ["Một câu dẫn ngắn."]}]
+        out = os.path.join(self.tmp, "caps.pptx")
+        build_pptx.build(doc, sections, out, min_slides=1)
+
+        from pptx import Presentation
+        for slide in Presentation(out).slides:
+            title = slide.shapes.title
+            if title is None:
+                continue
+            for para in title.text_frame.paragraphs:
+                self.assertEqual(para.font._rPr.get("cap"), "none",
+                                 f"title {para.text!r} still inherits ALL CAPS")
+
+    def test_pptx_rules_are_flat_not_shadowed(self):
+        """An empty effectLst does not stop LibreOffice honouring the theme effectRef."""
+        from pptx.oxml.ns import qn
+
+        doc = {"title": "Report", "blocks": [{"kind": "para", "text": "english body text"}]}
+        out = os.path.join(self.tmp, "flat.pptx")
+        build_pptx.build(doc, [{"title": "Alpha", "items": ["a", "b", "c"]}], out, min_slides=1)
+
+        from pptx import Presentation
+        bars = 0
+        for slide in Presentation(out).slides:
+            for shape in slide.shapes:
+                style = shape._element.find(qn("p:style"))
+                if style is None:
+                    continue
+                effect_ref = style.find(qn("a:effectRef"))
+                if effect_ref is not None:
+                    bars += 1
+                    self.assertEqual(effect_ref.get("idx"), "0",
+                                     "accent rule still references a theme shadow")
+        self.assertGreater(bars, 0, "expected at least one accent rule")
+
+    def test_pptx_rules_never_cross_a_text_box(self):
+        """The title box is bottom-anchored, so a rule placed at its lower edge strikes
+        through the descenders instead of underlining the title."""
+        from pptx import Presentation
+        from pptx.oxml.ns import qn
+
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        out = os.path.join(self.tmp, "rules.pptx")
+        build_pptx.build(doc, doc_io.outline_sections(doc), out, subtitle="phụ đề")
+
+        for index, slide in enumerate(Presentation(out).slides, 1):
+            rules, texts = [], []
+            for shape in slide.shapes:
+                if shape.has_text_frame and shape.text_frame.text.strip():
+                    texts.append((shape.name, shape.top, shape.top + shape.height))
+                elif shape._element.find(qn("p:style")) is not None:
+                    rules.append((shape.top, shape.top + shape.height))
+            for top, bottom in rules:
+                for name, text_top, text_bottom in texts:
+                    overlap = min(bottom, text_bottom) - max(top, text_top)
+                    self.assertLessEqual(overlap, 0,
+                                         f"slide {index}: rule crosses {name}")
+
+    def test_pptx_pads_by_splitting_content_not_by_inventing_slides(self):
+        """The deck used to append slides whose only bullet read "(bổ sung)"."""
+        doc = {"title": "Kế hoạch", "blocks": [{"kind": "para", "text": "nội dung tiếng Việt ở đây"}]}
+        sections = [{"title": "Phần một", "items": [f"ý {i}" for i in range(6)]}]
+        out = os.path.join(self.tmp, "padded.pptx")
+        stats = build_pptx.build(doc, sections, out, min_slides=7)
+
+        from pptx import Presentation
+        text = "\n".join(
+            para.text
+            for slide in Presentation(out).slides
+            for shape in slide.shapes if shape.has_text_frame
+            for para in shape.text_frame.paragraphs
+        )
+        self.assertNotIn("(bổ sung)", text)
+        self.assertGreaterEqual(stats["slides"], 7)
+
+    def test_pptx_localises_its_own_wording(self):
+        """An English deck used to close on the Vietnamese slide "Tóm tắt & Q&A"."""
+        english = {"title": "Quarterly Report", "blocks": [{"kind": "para", "text": "english body"}]}
+        out = os.path.join(self.tmp, "en.pptx")
+        build_pptx.build(english, [{"title": "Alpha", "items": ["a", "b"]}], out, min_slides=1)
+
+        from pptx import Presentation
+        titles = [s.shapes.title.text for s in Presentation(out).slides if s.shapes.title]
+        self.assertIn("Summary & Q&A", titles)
+        self.assertIn("Agenda", titles)
+        self.assertNotIn("Tóm tắt & Q&A", titles)
 
     def test_credits_slide_names_creator_and_licence(self):
         src = os.path.join(self.tmp, "sample.docx")
@@ -382,6 +604,36 @@ class ImageSearchTests(unittest.TestCase):
         with self.assertRaises(image_search.ImageSearchError):
             image_search.download({"url": "https://e.org/a.png"}, self.tmp, 1)
 
+    def test_download_rejects_webp_served_as_jpeg(self):
+        """rawpixel serves WebP from a `.jpg` URL; python-pptx cannot embed it."""
+        webp = b"RIFF\x24\x00\x00\x00WEBPVP8 "
+        self.fake_get(webp, "image/webp")
+        with self.assertRaises(image_search.UnsupportedImageFormat):
+            image_search.download({"url": "https://example.org/a.jpg"}, self.tmp, 1)
+        self.assertEqual(os.listdir(self.tmp), [], "unusable bytes must not be saved")
+
+    def test_fetch_falls_through_to_the_next_candidate(self):
+        """An unusable top hit costs the slide its picture only if every hit fails."""
+        listing = json.dumps({"results": [
+            {"url": "https://e.org/a.jpg", "title": "webp one", "creator": "A",
+             "license": "cc0", "license_version": "1.0"},
+            {"url": "https://e.org/b.png", "title": "good one", "creator": "B",
+             "license": "cc0", "license_version": "1.0"},
+        ]}).encode()
+
+        def _get(url, timeout):
+            if url.startswith(image_search.API_URL):
+                return listing, "application/json"
+            if url.endswith("a.jpg"):
+                return b"RIFF\x24\x00\x00\x00WEBPVP8 ", "image/webp"
+            return TINY_PNG, "image/png"
+        image_search._get = _get
+
+        paths, credits, warnings = image_search.fetch(["anything"], self.tmp)
+        self.assertTrue(paths[0] and paths[0].endswith(".png"))
+        self.assertEqual([c["creator"] for c in credits], ["B"], "credit the image we kept")
+        self.assertEqual(warnings, ["image_unsupported_format:anything"])
+
     def test_download_rejects_a_non_image_body(self):
         self.fake_get(b"<html>404</html>", "text/html")
         with self.assertRaises(image_search.ImageSearchError):
@@ -404,6 +656,119 @@ class ImageSearchTests(unittest.TestCase):
         self.assertTrue(paths and paths[0], f"no image came back: {warnings}")
         self.assertGreater(os.path.getsize(paths[0]), 1000)
         self.assertTrue(credits[0]["license"], "a credited licence is required by CC-BY")
+
+
+class ValidateOutputTests(unittest.TestCase):
+    """The validator is the only guard that survives a renderer disagreeing, so it has
+    to be shown biting on the defects it exists to catch -- not just passing."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="validate-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def run_validator(self, *paths, source=None):
+        cmd = [sys.executable, os.path.join(SCRIPTS, "validate_output.py")]
+        for path in paths:
+            cmd += ["--file", path]
+        if source:
+            cmd += ["--source", source]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        return json.loads(proc.stdout)
+
+    def checks_for(self, report, index=0):
+        return {p["check"] for p in report["files"][index]["problems"]}
+
+    def test_accepts_a_deck_the_builder_produced(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        out = os.path.join(self.tmp, "good.pptx")
+        build_pptx.build(doc, doc_io.outline_sections(doc), out, subtitle="phụ đề")
+
+        report = self.run_validator(out)
+        self.assertTrue(report["success"], report["files"][0]["problems"])
+
+    def test_flags_hand_placed_textboxes_and_a_narrow_canvas(self):
+        """Reproduces the original builder: Blank layouts, no titles, 4:3 geometry."""
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+
+        prs = Presentation()
+        prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
+        for _ in range(2):
+            slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank
+            box = slide.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(9.0), Inches(1.0))
+            box.text_frame.paragraphs[0].text = "Tiêu đề vẽ tay"
+            box.text_frame.paragraphs[0].font.size = Pt(28)
+        out = os.path.join(self.tmp, "legacy.pptx")
+        prs.save(out)
+
+        checks = self.checks_for(self.run_validator(out))
+        self.assertIn("title_placeholder", checks)
+        self.assertIn("layout", checks)
+        self.assertIn("canvas_use", checks)
+
+    def test_flags_text_that_cannot_fit_its_box(self):
+        """Measured with the real font, so the verdict holds outside LibreOffice."""
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+
+        prs = Presentation()
+        prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        slide.shapes.title.text = "Tiêu đề"
+        slide.shapes.title.left, slide.shapes.title.width = Inches(0.7), Inches(12)
+        body = slide.placeholders[1]
+        body.left, body.top, body.width, body.height = (
+            Inches(0.7), Inches(1.6), Inches(11.9), Inches(1.0))
+        frame = body.text_frame
+        for i in range(8):
+            para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
+            para.text = "Một dòng nội dung khá dài để chắc chắn tràn khỏi khung. " * 2
+            para.font.size = Pt(20)
+        out = os.path.join(self.tmp, "overflow.pptx")
+        prs.save(out)
+
+        self.assertIn("overflow", self.checks_for(self.run_validator(out)))
+
+    def test_flags_a_word_file_with_no_body_text(self):
+        import convert
+
+        md = os.path.join(self.tmp, "prose.md")
+        with open(md, "w", encoding="utf-8") as fh:
+            fh.write("# Báo cáo\n\n## Phần\n\nĐoạn văn xuôi dài đủ để tính là nội dung thật.\n")
+        good = os.path.join(self.tmp, "good.docx")
+        convert.build_docx(doc_io.extract(md), good)
+        self.assertTrue(self.run_validator(good)["success"])
+
+        # Now the defect: every paragraph forced into the bullet style.
+        import docx
+        d = docx.Document()
+        d.add_heading("Báo cáo", level=0)
+        for text in ("Đoạn văn xuôi thứ nhất.", "Đoạn văn xuôi thứ hai."):
+            d.add_paragraph(text, style="List Bullet")
+        bad = os.path.join(self.tmp, "bad.docx")
+        d.save(bad)
+        self.assertIn("prose", self.checks_for(self.run_validator(bad)))
+
+    def test_coverage_notices_content_dropped_on_the_floor(self):
+        md = os.path.join(self.tmp, "source.md")
+        with open(md, "w", encoding="utf-8") as fh:
+            fh.write(
+                "# Báo cáo\n\n"
+                "Một đoạn văn đủ dài để được tính vào phần kiểm tra bao phủ nội dung.\n\n"
+                "Một đoạn khác cũng đủ dài và bắt buộc phải xuất hiện trong bản xuất ra.\n"
+            )
+        import convert
+        full = os.path.join(self.tmp, "full.docx")
+        convert.build_docx(doc_io.extract(md), full)
+        self.assertTrue(self.run_validator(full, source=md)["success"])
+
+        truncated = doc_io.extract(md)
+        truncated["blocks"] = truncated["blocks"][:1]
+        partial = os.path.join(self.tmp, "partial.docx")
+        convert.build_docx(truncated, partial)
+        self.assertIn("coverage", self.checks_for(self.run_validator(partial, source=md)))
 
 
 class NarrateTests(unittest.TestCase):

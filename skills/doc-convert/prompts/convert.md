@@ -63,8 +63,32 @@ Parse the JSON output.
 
 - On `"success": true`: the `output` field is the absolute result path (inside the workspace).
 - `images_used` counts the pictures that landed on slides; `image_credits` lists their creators and licences.
-- `warnings` may carry `image_search_needs_english_query`, `image_search_no_result:<q>`, `image_search_failed:<q>:<Error>`, or `image_search_disabled`. None of these are fatal.
+- `warnings` may carry `image_search_needs_english_query`, `image_search_no_result:<q>`, `image_search_failed:<q>:<Error>`, `image_unsupported_format:<q>` (a hit was WebP or similar; the next candidate was tried), `image_download_failed:<q>:<Error>`, `image_embed_failed:<file>`, or `image_search_disabled`. None of these are fatal.
+- `images_used` counts pictures that actually landed on a slide, not pictures fetched.
 - On failure: relay the `error` message honestly. Common cases: private Google link (ask the user to enable link sharing or upload the file), scanned PDF (unsupported), unsupported extension.
+
+## Verify Before Delivering
+
+Rendering the result yourself only proves what your renderer would draw; the customer
+opens the file in PowerPoint, Word, Canva or Google Slides. Run the validator on every
+produced file instead — it reads geometry out of the OOXML and measures text with the
+real Calibri-metric font, so its verdict does not depend on LibreOffice:
+
+```bash
+python3 skills/doc-convert/scripts/validate_output.py \
+  --file "<output-path>" [--file "<other-output>"] --source "<input-path>"
+```
+
+- `"success": true` — deliver.
+- Otherwise each entry lists `problems` with a `check` and a `detail`. `overflow`,
+  `overlap`, `bounds`, `canvas_use`, `title_placeholder` and `layout` are layout faults;
+  `prose` means a Word file came out as one long bullet list; `coverage` means source
+  text is missing from the output; `font_embedding` and `encoding` are PDF faults.
+- Fix the cause and rebuild. Never deliver a file whose validation failed without
+  telling the user exactly which check failed.
+
+`--source` is optional but worth passing: it is the only check that notices content the
+converter silently dropped.
 
 ## Deliver
 

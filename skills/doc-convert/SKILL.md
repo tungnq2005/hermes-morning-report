@@ -22,7 +22,7 @@ Use this skill as the router for the Document & Presentation Conversion use case
 
 - Outputs: `skills/doc-convert/state/output-history/YYYY-MM-DD/<run-id>/` (one directory per conversion run, contains outputs + `manifest.json`)
 - Audio narration history: `skills/doc-convert/state/audio-history/`
-- Helper scripts: `convert.py`, `narrate.py`, `preflight.py`, `doc_io.py`, `build_pptx.py`
+- Helper scripts: `convert.py`, `narrate.py`, `preflight.py`, `validate_output.py`, `doc_io.py`, `build_pptx.py`
 
 Do not hand-write output files when a helper script can produce them.
 
@@ -35,3 +35,4 @@ Do not hand-write output files when a helper script can produce them.
 - Use the user's language for conversation; keep generated content in the document's own language unless the user asks otherwise.
 - Google Workspace access is available when `preflight` shows `google.authorized_token: true`: private Docs/Slides/Drive links are read via the authorized API, and `--to gdoc`/`gslides` create cloud drafts. If NOT authorized, private links fail — then ask the user to enable link sharing ("Anyone with the link") or upload the file directly. Never claim OAuth access without verifying via preflight.
 - Report conversion failures honestly with the helper's error output. Do not fabricate output paths.
+- Run `validate_output.py` on every generated file before sending it. Viewing a rendered preview is not verification: the customer's PowerPoint or Word is a different renderer from ours. If a check fails, fix it or tell the user which check failed — never ship a silent failure.

@@ -36,6 +36,8 @@ MAX_IMAGE_BYTES = 4_000_000
 # Openverse orders by its own relevance, which put a NASA belly-camera photo first for
 # "cloud data center". Over-fetch and re-rank on how many query words the title carries.
 OVER_FETCH = 5
+# How many ranked hits `fetch` will try before leaving a slide bare.
+CANDIDATES = 3
 
 # Set to 1 to keep conversions (and the test suite) off the network.
 DISABLE_ENV = "DOC_CONVERT_DISABLE_IMAGE_SEARCH"
@@ -43,6 +45,32 @@ DISABLE_ENV = "DOC_CONVERT_DISABLE_IMAGE_SEARCH"
 
 class ImageSearchError(Exception):
     pass
+
+
+class UnsupportedImageFormat(ImageSearchError):
+    """The bytes are an image, but not one python-pptx can embed."""
+
+
+# python-pptx embeds these and nothing else. Sniff the bytes rather than trusting the
+# extension or Content-Type: rawpixel serves WebP from a URL ending in `.jpg`, which
+# used to be saved as `slide-image-NN.jpg` and then silently rejected at embed time.
+_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF87a", ".gif"),
+    (b"GIF89a", ".gif"),
+    (b"BM", ".bmp"),
+    (b"II*\x00", ".tiff"),
+    (b"MM\x00*", ".tiff"),
+)
+
+
+def image_ext(data: bytes) -> str | None:
+    """Extension for embeddable bytes, or None when the format is unusable."""
+    for magic, ext in _MAGIC:
+        if data.startswith(magic):
+            return ext
+    return None
 
 
 def disabled() -> bool:
@@ -112,7 +140,9 @@ def download(hit: dict, dest_dir: str, index: int) -> str:
         raise ImageSearchError(f"not an image: {content_type or 'unknown'}")
     if len(data) > MAX_IMAGE_BYTES:
         raise ImageSearchError("image exceeds size cap")
-    ext = ".png" if "png" in content_type else ".jpg"
+    ext = image_ext(data)
+    if ext is None:
+        raise UnsupportedImageFormat(f"cannot embed {content_type or 'unknown'} in a slide")
     path = os.path.join(dest_dir, f"slide-image-{index:02d}{ext}")
     with open(path, "wb") as fh:
         fh.write(data)
@@ -139,7 +169,7 @@ def fetch(queries: list[str], dest_dir: str) -> tuple[list[str | None], list[dic
             paths.append(None)
             continue
         try:
-            hits = search(query, limit=1)
+            hits = search(query, limit=CANDIDATES)
         except Exception as exc:  # noqa: BLE001 - a dead API must not kill the deck
             warnings.append(f"image_search_failed:{query}:{type(exc).__name__}")
             paths.append(None)
@@ -148,11 +178,18 @@ def fetch(queries: list[str], dest_dir: str) -> tuple[list[str | None], list[dic
             warnings.append(f"image_search_no_result:{query}")
             paths.append(None)
             continue
-        try:
-            paths.append(download(hits[0], dest_dir, index))
-            credits.append(hits[0])
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(f"image_download_failed:{query}:{type(exc).__name__}")
+        # The best-ranked hit may be a WebP or a dead origin. Walk down the ranking
+        # rather than dropping the slide's picture on the first failure.
+        for hit in hits:
+            try:
+                paths.append(download(hit, dest_dir, index))
+                credits.append(hit)
+                break
+            except UnsupportedImageFormat:
+                warnings.append(f"image_unsupported_format:{query}")
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"image_download_failed:{query}:{type(exc).__name__}")
+        else:
             paths.append(None)
 
     return paths, credits, warnings
