@@ -1,0 +1,83 @@
+{
+  "description": "Official stdout templates for Morning Report workflow steps that return next_action.",
+  "steps": {
+    "prepare_config": {
+      "configured": {
+        "next_action": "The Morning Report is configured. Reply in the user's language.{requested_config_section}{warnings_section}Ask the user to confirm before saving. After confirmation, rerun prepare_config.py with --save --enable-cron and the same requested values. Saving reconciles one cron job per configured topic."
+      },
+      "needs_config": {
+        "next_action": "The Morning Report is not fully configured. Reply in the user's language.{requested_config_section}{warnings_section}{missing_config_section}Do not save until the full config is clearly confirmed."
+      },
+      "saved": {
+        "next_action": "The Morning Report config has been saved. Reply in the user's language.{requested_config_section}{warnings_section}{cron_sync_section}"
+      },
+      "save_blocked": {
+        "next_action": "The Morning Report config was not saved because some topics are incomplete. Reply in the user's language.{requested_config_section}{warnings_section}{missing_config_section}After the user provides the missing fields and confirms, rerun prepare_config.py with --save --enable-cron."
+      }
+    },
+    "collect_sources": {
+      "config_missing": {
+        "configured": false,
+        "next_action": "Stop. Tell the user in their language what configuration is missing, based on missing_config."
+      },
+      "multiple_topics": {
+        "success": false,
+        "next_action": "Run collect_sources.py once per topic using --topic with each value from topics. Each topic produces a separate report.",
+        "topics": []
+      },
+      "topic_not_configured": {
+        "success": false,
+        "next_action": "Stop. Tell the user in their language that the requested topic is not in the configured topics. Ask whether to add it first."
+      },
+      "success_with_sources": {
+        "success": true,
+        "next_action": "Read every .txt file in {run_dir}/sources/ (SOURCE_TITLE, SOURCE_URL, content), then write {run_dir}/report.md following references/report-styles.md. Make the report title identify the topic.",
+        "run_dir": "{run_dir}"
+      },
+      "no_usable_sources": {
+        "success": false,
+        "next_action": "Stop. Tell the user in their language that there were not enough usable fresh sources to generate today's report. Mention they can try again later or change the topic.",
+        "run_dir": "{run_dir}"
+      },
+      "search_provider_failed": {
+        "success": false,
+        "next_action": "Stop. Tell the user in their language that the report could not run because the search provider failed. Mention that run details were saved for troubleshooting.",
+        "run_dir": "{run_dir}"
+      }
+    },
+    "validate_report": {
+      "valid": {
+        "next_action": "Send the validated report to the user via Telegram. Include the report.md content verbatim (including the ### Sources footer) and, if audio was generated, a line MEDIA:<the audio MP3 output path from Step 4>. No preamble, no 'Delivering final output:', no summary."
+      },
+      "invalid": {
+        "next_action": "Fix the report file using issues, then re-run report validation."
+      }
+    },
+    "cron_control": {
+      "paused": {
+        "next_action": "All Morning Report cron jobs were paused. Reply in the user's language. Tell them their config is preserved and no report will be sent until they ask to resume the morning report. Use the details list if any job was skipped or failed."
+      },
+      "resumed": {
+        "next_action": "All Morning Report cron jobs were resumed. Reply in the user's language. Tell them the next report for each topic will be sent at that topic's configured delivery_time and timezone. Config is unchanged. Use the details list if any job was skipped or failed."
+      },
+      "no_job_pause": {
+        "next_action": "Stop. Tell the user in their language that there is no daily schedule to pause. Ask whether they want to set up the Morning Report first."
+      },
+      "no_job_resume": {
+        "next_action": "Stop. Tell the user in their language that there is no paused schedule to resume. Ask whether they want to set up the Morning Report first."
+      },
+      "already_paused": {
+        "next_action": "Tell the user in their language that all Morning Report jobs were already paused. No change was made. Mention they can resume anytime by asking to resume the morning report."
+      },
+      "already_running": {
+        "next_action": "Tell the user in their language that all Morning Report jobs are already running. No change was made. Mention they can pause anytime by asking to pause the morning report."
+      },
+      "not_default_state": {
+        "next_action": "The cron {action} was not applied because --state is not the default config path. Required action: {action} all Morning Report cron jobs."
+      },
+      "error": {
+        "next_action": "Stop. Tell the user in their language that one or more schedules could not be {action}d because the cron command failed: {error}. Suggest trying again later."
+      }
+    }
+  }
+}

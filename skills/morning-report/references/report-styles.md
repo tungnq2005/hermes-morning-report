@@ -1,83 +1,77 @@
 # Report Styles
 
-Use the configured report language.
+Use the configured report language from config. All headings, content, and date format must be in that language.
+
 Use exactly one canonical style: `concise`, `deep_analysis`, or `opportunities_risks`.
 
 ## concise
 
-Scan-friendly. Usually 300-550 words.
+Scan-friendly. 400-600 words.
 
 ```md
-# Morning Brief — <date>
+# Morning Brief — <date in report language>
 
-## Snapshot
+## <section heading in report language>
 - One most important update.
 
-## Key updates
+## <section heading in report language>
 - 3-5 bullets: what changed + why it matters.
 
-## Watch next
+## <section heading in report language>
 - 1-3 signals.
 ```
 
+Heading translations vary by language — use the configured `report_language`.
+
 ## deep_analysis
 
-For deeper explanation and implications. Max 900 words.
+900-1200 words. Needs ### subsections.
 
 ```md
-# Morning Analysis — <date>
+# Morning Analysis — <date in report language>
 
-## Executive summary
+## <section heading in report language>
 - 2-4 judgments.
 
-## Key developments
+## <section heading in report language>
 ### Theme
-- What happened.
-- Evidence.
-- Why it matters.
+- What happened. Evidence. Why it matters.
 
-## Implications
-- Short-term:
-- Medium-term:
+## <section heading in report language>
+- Short-term / Medium-term.
 
-## Watch next
-- Signals.
+## <section heading in report language>
 ```
+
+Heading translations vary by language — use the configured `report_language`.
 
 ## opportunities_risks
 
-Decision-focused. Max 900 words.
+900-1200 words. Needs ### subsections.
 
 ```md
-# Opportunities & Risks — <date>
+# Opportunities & Risks — <date in report language>
 
-## Snapshot
+## <section heading in report language>
 - 2-3 important changes.
 
-## Opportunities
-### Opportunity
-- Signal:
-- Why it matters:
-- Trigger/condition:
-- Possible action:
+## <section heading in report language>
+### Opportunityhết
 
-## Risks
-### Risk
-- Signal:
-- Impact:
-- Likelihood:
-- Mitigation/watch signal:
-
-## Watchlist
+## <section heading in report language>
 - Indicators.
 
-## Suggested actions
+## <section heading in report language>
 - Actions.
 ```
 
-## Output
+Heading translations vary by language — use the configured `report_language`.
 
+## Rules
+
+- All section headings must be in the configured report language — never in English unless config says English.
 - Start directly with the title.
 - No progress logs, debug notes, or second recap.
-- Use compact evidence links with full URLs.
+- Include 3-5 Markdown evidence links using `SOURCE_URL` values from source files.
+- Put evidence links in a footer section.
 - Keep tone calm. Avoid hype.

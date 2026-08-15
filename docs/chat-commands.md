@@ -15,8 +15,10 @@ Một trang. Nhắn **@your_bot** bằng ngôn ngữ tự nhiên — đây là v
 | Add topic / Thêm chủ đề | "Add technology news" · "Thêm chủ đề tin công nghệ" |
 | Remove topic / Bớt chủ đề | "Remove weather" · "Bỏ chủ đề thời tiết" |
 | Change time / Đổi giờ | "Send it at 6:30 AM" · "Đổi giờ gửi sang 6h30" |
+| Change timezone / Đổi múi giờ | "Use Asia/Ho_Chi_Minh timezone" · "Đổi múi giờ sang Asia/Ho_Chi_Minh" |
 | Change style / Đổi phong cách | "Switch to deep analysis" · "Chuyển sang phân tích sâu" |
 | Change language / Đổi ngôn ngữ | "Send the report in English" · "Gửi báo cáo bằng tiếng Anh" |
+| Audio on/off / Bật-tắt audio | "Turn off the audio summary" · "Tắt audio summary" |
 | Pause / Tạm dừng | "Pause the morning report" · "Tạm dừng morning report" |
 | Resume / Bật lại | "Resume the morning report" · "Bật lại morning report" |
 | View config / Xem cấu hình | "What's my morning report setup?" · "Morning report đang cấu hình thế nào?" |

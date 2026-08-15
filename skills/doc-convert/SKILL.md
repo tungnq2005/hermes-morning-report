@@ -1,7 +1,7 @@
 ---
 name: doc-convert
 description: >
-  Convert documents and presentations between formats for OpenClaw.
+  Convert documents and presentations between formats for Hermes.
   Use this skill when the user sends a file (Word .docx, PowerPoint .pptx, PDF, text, Markdown)
   or a Google Drive / Google Docs / Google Slides link and asks to convert it to another format
   (PowerPoint, Word, PDF, Markdown), to summarize it into slides, or to narrate it as audio.

@@ -4,7 +4,7 @@ Mục tiêu (AC D3): sau buổi này, khách **tự thao tác được** các vi
 Goal (D3 AC): after this session, the client can **operate the basics themselves**.
 
 **Chuẩn bị trước / Prep beforehand**
-- Gateway đang chạy trên VPS (`healthcheck.sh` → `ok:true`).
+- Gateway đang chạy trên VPS (`healthcheck_hermes.sh` → `ok:true`).
 - Đã đăng nhập dashboard sẵn trên trình duyệt (khỏi dán token lúc demo).
 - Mở sẵn Telegram với `@your_bot`.
 - In/mở sẵn `chat-commands.md` cho khách.
@@ -19,7 +19,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 1. Khách nhắn: *"Chạy thử morning report ngay"* → chờ nhận bản tin text + audio MP3.
 2. Trong lúc chờ, mở dashboard `http://127.0.0.1:18789/` cho xem cron job đang lên lịch (`Next run`).
 3. Khách tự đổi chủ đề: *"Thêm chủ đề giá vàng"* → xác nhận.
-4. Chỉ cách tạm dừng / bật lại.
+4. Khách tự tạm dừng / bật lại: *"Tạm dừng morning report"* → bot xác nhận đã pause; rồi *"Bật lại morning report"* → bot xác nhận đã resume. Config giữ nguyên.
 
 ## Phút 10–20 — Document Conversion (để KHÁCH tự làm)
 1. Khách kéo–thả 1 file Word vào chat + *"Chuyển thành PowerPoint"* → nhận .pptx.
@@ -29,7 +29,7 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 
 ## Phút 20–25 — Vận hành & sự cố / Ops & troubleshooting
 - Chỉ `chat-commands.md` (bảng lệnh 1 trang) — "cần gì cứ nhắn tự nhiên".
-- Với người quản trị: chỉ `operator-runbook` — restart gateway, xem log, đổi key, `healthcheck.sh`.
+- Với người quản trị: chỉ `operator-runbook` — restart gateway, xem log, đổi key, `healthcheck_hermes.sh`.
 - Nói rõ known limitations (TTS keyless, Google riêng tư chưa có).
 
 ## Phút 25–30 — Hỏi đáp & bàn giao tài liệu / Q&A & handoff
@@ -41,10 +41,10 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 
 ## Checklist nghiệm thu D3 / D3 acceptance checklist
 - [ ] Gateway `active (running)`, tự lên sau reboot VPS (lingering=yes).
-- [ ] Morning report gửi được text + audio 3–5 phút; cron đặt đúng 7:00 giờ khách.
+- [ ] Morning report gửi được text + audio 3–5 phút; cron đặt đúng giờ gửi đã cấu hình (theo timezone của khách).
 - [ ] Doc-convert: docx↔pptx↔pdf + narrate chạy được qua chat.
 - [ ] `secrets audit --check` → clean (plaintext=0).
-- [ ] `healthcheck.sh` → `ok:true`.
+- [ ] `healthcheck_hermes.sh` → `ok:true`.
 - [ ] Ổn định ≥48h: ≥2 lần gửi sáng thành công, log không lỗi lặp.
 - [ ] Khách tự thao tác được các việc cơ bản trong buổi này.
 - [ ] Đã bàn giao đủ tài liệu song ngữ.

@@ -14,7 +14,6 @@
 openclaw-workspace-state.json
 
 # OpenClaw customer-generated identity and memory files
-SOUL.md
 IDENTITY.md
 USER.md
 HEARTBEAT.md

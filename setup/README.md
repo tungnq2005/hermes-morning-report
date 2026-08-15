@@ -1,28 +1,24 @@
-# Morning Brief Setup — OpenClaw (D1 + D2 + D3)
+# Morning Brief Setup — Hermes Agent (D1 + D2 + D3)
 
-Bộ script + tài liệu để deploy trợ lý AI Telegram (OpenClaw, cài **NATIVE** không Docker) lên VPS Ubuntu, gồm cả 2 skill và tài liệu bàn giao.
+Bộ script + tài liệu để deploy trợ lý AI Telegram (Hermes Agent, cài **NATIVE** không Docker) lên VPS Ubuntu, gồm cả 2 skill và tài liệu bàn giao.
 
-- **D1 — Morning Report**: bot gửi bản tin sáng (text + audio 3–5 phút) qua cron.
+- **D1 — Morning Report**: bot gửi bản tin sáng (text + audio 3–5 phút) qua cron, per-topic.
 - **D2 — Document Conversion**: chuyển đổi Word/PPT/PDF/Markdown + tường thuật audio.
 - **D3 — Technical Setup**: provisioning, integration, giám sát, tài liệu, bàn giao.
 
 ## Cấu trúc
 
 ```
-morning-brief-setup/
-├── config.env                 <- SỬA TRƯỚC: user, port, timezone, giờ gửi, search provider
-├── setup_all.sh               <- chạy tất cả các bước theo thứ tự
+openclaw-morning_report/
+├── config.env                 <- SỬA TRƯỚC: user, timezone, giờ gửi, search provider (gate 08)
+├── setup_all_hermes.sh        <- chạy tất cả các bước theo thứ tự
 ├── scripts/
-│   ├── 01_system_prep.sh          cập nhật OS + gói nền D1 & D2 (LibreOffice, pip) + lingering
-│   ├── 02_install_openclaw.sh     cài OpenClaw CLI + onboarding daemon (NATIVE)
-│   ├── 03_setup_env.sh            tạo /etc/openclaw/openclaw.env (token + search key) + quyền 600
-│   ├── 04_attach_env_service.sh   gắn env vào gateway service (drop-in)
-│   ├── 05_migrate_secrets.sh      migrate secret sang SecretRef (non-interactive)
-│   ├── 06_bootstrap_skill.sh      cài CẢ 2 skill từ ../skills/ + test + readiness
-│   ├── 07_configure_integrations.sh  tool profile (tts/message) + search provider + command owner
-│   ├── 08_searxng.sh              (tùy chọn) dựng SearXNG nếu chọn provider này
-│   └── healthcheck.sh             kiểm tra sức khoẻ (bằng chứng ổn định 48h)
-├── templates/                 <- mẫu env + systemd override
+│   ├── 01_system_prep_hermes.sh        cập nhật OS + gói nền D1 & D2 + xz-utils + lingering
+│   ├── 02_install_hermes.sh            cài Hermes CLI + hermes setup (wizard) + gateway service (NATIVE)
+│   ├── 03_setup_env_hermes.sh          ghi EXA/Firecrawl/Brave vào ~/.hermes/.env (mode 600)
+│   ├── 04_bootstrap_skill_hermes.sh    symlink CẢ 2 skill từ ../skills/ + test + readiness
+│   ├── 05_searxng_hermes.sh            (tùy chọn) SearXNG cho platform web tool (skill không cần)
+│   └── healthcheck_hermes.sh           kiểm tra sức khoẻ (bằng chứng ổn định 48h)
 └── docs/
     ├── user-guide.vi.md / .en.md      hướng dẫn người dùng cuối (song ngữ)
     ├── operator-runbook.vi.md / .en.md  sổ tay vận hành cho quản trị (song ngữ)
@@ -33,36 +29,36 @@ morning-brief-setup/
 ## Cách deploy lên VPS
 
 ```bash
-# SSH vào VPS Ubuntu rồi clone repo này — bước 06 cài skill từ chính bản clone.
+# SSH vào VPS Ubuntu rồi clone repo — bước 04 symlink skill từ chính bản clone.
 git clone https://github.com/tungnq2005/openclaw-morning_report.git
 cd openclaw-morning_report/setup
-chmod +x setup_all.sh scripts/*.sh
+chmod +x setup_all_hermes.sh scripts/*.sh
 
-cp config.env.example config.env   # setup_all.sh source config.env, không phải .example
+cp config.env.example config.env   # setup_all_hermes.sh source config.env, không phải .example
 nano config.env                    # sửa OC_USER, OC_TIMEZONE, OC_DELIVERY_TIME, OC_SEARCH_PROVIDER...
 
-./setup_all.sh         # chạy tuần tự, dừng xác nhận trước mỗi bước
+./setup_all_hermes.sh         # chạy tuần tự, dừng xác nhận trước mỗi bước
 ```
 
-Các bước tương tác (wizard) trong `02` (onboarding) đã ghi rõ lựa chọn trong script — **nhớ chọn systemd user service, KHÔNG Docker** để giữ tool browser.
+Bước `02_install_hermes.sh` chạy `hermes setup` (wizard tương tác — chọn model/provider DeepSeek + Telegram) rồi `hermes gateway install --start-now --start-on-login` (systemd user service, native).
 
 ## Sau khi cài
-1. Mở Telegram, chat `@your_bot`: *"Setup Morning Report cho tôi bằng skill morning report."*
+1. Mở Telegram, chat `@your_bot`: *"Setup Morning Report cho tôi bằng skill morning report."* (hoặc chạy `python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --save --enable-cron`).
 2. Thử D2: gửi 1 file .docx + *"Chuyển thành PowerPoint"*.
-3. Kiểm tra: `bash scripts/healthcheck.sh` → `"ok":true`.
+3. Kiểm tra: `bash scripts/healthcheck_hermes.sh` → `"ok":true`.
 4. Bàn giao theo `docs/handover-session.md`.
 
 ## Tuỳ chọn sau khi cài
-- **Search**: mặc định `brave` làm chính, `exa` làm dự phòng khi Brave trả 429 (cần `EXA_API_KEY`). Đổi `OC_SEARCH_PROVIDER` trong `config.env` nếu muốn `tavily`/`searxng`/`google`.
-- **Google Workspace OAuth** (đọc file Google riêng tư + tạo draft thẳng vào Docs/Slides): chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy một lần:
+- **Morning Report search**: skill dùng `exa` chính + `brave` dự phòng trong `collect_sources.py` (cần `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, `FIRECRAWL_API_KEY` trong `~/.hermes/.env`). `OC_SEARCH_PROVIDER=searxng` chỉ kích hoạt bước 05 (SearXNG cho platform `web` tool của Hermes) — không ảnh hưởng search của skill.
+- **Google Workspace OAuth** (đọc Google riêng tư + tạo draft Docs/Slides): chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy:
   ```bash
   python3 skills/doc-convert/scripts/authorize_google.py
   ```
-  Bỏ qua bước này thì D2 vẫn chạy đầy đủ với file upload và link Google công khai.
+  Bỏ qua thì D2 vẫn chạy với file upload + link Google công khai.
 - **Ảnh cho slide**: D2 tự lấy ảnh CC từ Openverse, không cần API key. Muốn tắt: `--no-auto-images`.
 
 ## Kiểm chứng đã làm
-- Toàn bộ script: `bash -n` pass.
-- Unit test trên Ubuntu: **90/90** (morning-report) + **29/29** (doc-convert).
+- Toàn bộ script `*_hermes.sh`: `bash -n` pass.
+- Unit test trên Ubuntu: **73/73** (morning-report) + **29/29** (doc-convert).
 - `config.env` phân giải đúng cho user bất kỳ (vd `ubuntu` → `/home/ubuntu`).
-- `healthcheck.sh` chạy thật trên gateway dev → `ok:true`.
+- `healthcheck_hermes.sh` chạy thật trên gateway → `ok:true`.

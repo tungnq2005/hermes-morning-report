@@ -1,0 +1,290 @@
+{
+  "provider": "google_translate_tts",
+  "description": "Language codes, aliases, and probe text for the direct Google Translate TTS endpoint.",
+  "languages": {
+    "af": {
+      "test_text": "Dit is 'n oudiotoets vir die oggendverslag."
+    },
+    "am": {
+      "test_text": "ይህ ለጠዋት ሪፖርት የድምፅ ሙከራ ነው።"
+    },
+    "ar": {
+      "test_text": "هذا اختبار صوتي لتقرير الصباح."
+    },
+    "bg": {
+      "test_text": "Това е аудио тест за сутрешния доклад."
+    },
+    "bn": {
+      "test_text": "এটি সকালের প্রতিবেদনের জন্য একটি অডিও পরীক্ষা।"
+    },
+    "bs": {
+      "test_text": "Ovo je audio test za jutarnji izvještaj."
+    },
+    "ca": {
+      "test_text": "Aquesta és una prova d'àudio per a l'informe del matí."
+    },
+    "cs": {
+      "test_text": "Toto je zvukový test pro ranní zprávu."
+    },
+    "cy": {
+      "test_text": "Prawf sain ar gyfer adroddiad y bore yw hwn."
+    },
+    "da": {
+      "test_text": "Dette er en lydtest til morgenrapporten."
+    },
+    "de": {
+      "test_text": "Dies ist ein Audiotest für den Morgenbericht."
+    },
+    "el": {
+      "test_text": "Αυτή είναι μια δοκιμή ήχου για την πρωινή αναφορά."
+    },
+    "en": {
+      "test_text": "This is an audio test for the morning report."
+    },
+    "es": {
+      "test_text": "Esta es una prueba de audio para el informe de la mañana."
+    },
+    "et": {
+      "test_text": "See on hommikuraporti helitest."
+    },
+    "eu": {
+      "test_text": "Hau goizeko txostenaren audio-proba bat da."
+    },
+    "fi": {
+      "test_text": "Tämä on aamuraportin äänitesti."
+    },
+    "fr": {
+      "test_text": "Ceci est un test audio pour le rapport du matin."
+    },
+    "fr-CA": {
+      "test_text": "Ceci est un test audio pour le rapport du matin."
+    },
+    "gl": {
+      "test_text": "Esta é unha proba de audio para o informe da mañá."
+    },
+    "gu": {
+      "test_text": "આ સવારના અહેવાલ માટેની ઑડિયો કસોટી છે."
+    },
+    "ha": {
+      "test_text": "Wannan gwajin sauti ne don rahoton safe."
+    },
+    "hi": {
+      "test_text": "यह सुबह की रिपोर्ट के लिए एक ऑडियो परीक्षण है।"
+    },
+    "hr": {
+      "test_text": "Ovo je audio test za jutarnje izvješće."
+    },
+    "hu": {
+      "test_text": "Ez egy hangteszt a reggeli jelentéshez."
+    },
+    "id": {
+      "test_text": "Ini adalah tes audio untuk laporan pagi."
+    },
+    "is": {
+      "test_text": "Þetta er hljóðpróf fyrir morgunskýrsluna."
+    },
+    "it": {
+      "test_text": "Questo è un test audio per il rapporto del mattino."
+    },
+    "iw": {
+      "test_text": "זוהי בדיקת שמע לדוח הבוקר."
+    },
+    "ja": {
+      "test_text": "これは朝のレポート用の音声テストです。"
+    },
+    "jw": {
+      "test_text": "Iki tes audio kanggo laporan esuk."
+    },
+    "km": {
+      "test_text": "នេះគឺជាការធ្វើតេស្តសំឡេងសម្រាប់របាយការណ៍ពេលព្រឹក។"
+    },
+    "kn": {
+      "test_text": "ಇದು ಬೆಳಗಿನ ವರದಿಗಾಗಿ ಧ್ವನಿ ಪರೀಕ್ಷೆಯಾಗಿದೆ."
+    },
+    "ko": {
+      "test_text": "이것은 아침 보고서용 오디오 테스트입니다."
+    },
+    "la": {
+      "test_text": "Hoc est experimentum soni relationis matutinae."
+    },
+    "lt": {
+      "test_text": "Tai yra rytinės ataskaitos garso testas."
+    },
+    "lv": {
+      "test_text": "Šis ir rīta ziņojuma audio tests."
+    },
+    "ml": {
+      "test_text": "ഇത് പ്രഭാത റിപ്പോർട്ടിനുള്ള ഓഡിയോ പരിശോധനയാണ്."
+    },
+    "mr": {
+      "test_text": "ही सकाळच्या अहवालासाठीची ऑडिओ चाचणी आहे."
+    },
+    "ms": {
+      "test_text": "Ini ialah ujian audio untuk laporan pagi."
+    },
+    "my": {
+      "test_text": "ဤသည်မှာ နံနက်ခင်းအစီရင်ခံစာအတွက် အသံစမ်းသပ်မှုဖြစ်သည်။"
+    },
+    "ne": {
+      "test_text": "यो बिहानको प्रतिवेदनका लागि अडियो परीक्षण हो।"
+    },
+    "nl": {
+      "test_text": "Dit is een audiotest voor het ochtendrapport."
+    },
+    "no": {
+      "test_text": "Dette er en lydtest for morgenrapporten."
+    },
+    "pa": {
+      "test_text": "ਇਹ ਸਵੇਰ ਦੀ ਰਿਪੋਰਟ ਲਈ ਆਡੀਓ ਟੈਸਟ ਹੈ।"
+    },
+    "pl": {
+      "test_text": "To jest test audio dla porannego raportu."
+    },
+    "pt": {
+      "test_text": "Este é um teste de áudio para o relatório da manhã."
+    },
+    "pt-PT": {
+      "test_text": "Este é um teste de áudio para o relatório da manhã."
+    },
+    "ro": {
+      "test_text": "Acesta este un test audio pentru raportul de dimineață."
+    },
+    "ru": {
+      "test_text": "Это аудиотест для утреннего отчёта."
+    },
+    "si": {
+      "test_text": "මෙය උදෑසන වාර්තාව සඳහා ශ්‍රව්‍ය පරීක්ෂණයකි."
+    },
+    "sk": {
+      "test_text": "Toto je zvukový test pre rannú správu."
+    },
+    "sq": {
+      "test_text": "Ky është një test audio për raportin e mëngjesit."
+    },
+    "sr": {
+      "test_text": "Ово је аудио тест за јутарњи извештај."
+    },
+    "su": {
+      "test_text": "Ieu tés audio pikeun laporan isuk."
+    },
+    "sv": {
+      "test_text": "Detta är ett ljudtest för morgonrapporten."
+    },
+    "sw": {
+      "test_text": "Hili ni jaribio la sauti kwa ripoti ya asubuhi."
+    },
+    "ta": {
+      "test_text": "இது காலை அறிக்கைக்கான ஒலி சோதனை."
+    },
+    "te": {
+      "test_text": "ఇది ఉదయం నివేదిక కోసం ఆడియో పరీక్ష."
+    },
+    "th": {
+      "test_text": "นี่คือการทดสอบเสียงสำหรับรายงานช่วงเช้า"
+    },
+    "tl": {
+      "test_text": "Ito ay isang audio test para sa ulat sa umaga."
+    },
+    "tr": {
+      "test_text": "Bu, sabah raporu için bir ses testidir."
+    },
+    "uk": {
+      "test_text": "Це аудіотест для ранкового звіту."
+    },
+    "ur": {
+      "test_text": "یہ صبح کی رپورٹ کے لیے ایک آڈیو ٹیسٹ ہے۔"
+    },
+    "vi": {
+      "test_text": "Đây là bài kiểm tra âm thanh cho báo cáo buổi sáng."
+    },
+    "yue": {
+      "test_text": "呢個係晨報音訊測試。"
+    },
+    "zh-CN": {
+      "test_text": "这是晨报音频测试。"
+    },
+    "zh-TW": {
+      "test_text": "這是晨報音訊測試。"
+    }
+  },
+  "aliases": {
+    "afrikaans": "af",
+    "amharic": "am",
+    "arabic": "ar",
+    "bulgarian": "bg",
+    "bengali": "bn",
+    "bosnian": "bs",
+    "catalan": "ca",
+    "czech": "cs",
+    "welsh": "cy",
+    "danish": "da",
+    "german": "de",
+    "greek": "el",
+    "english": "en",
+    "spanish": "es",
+    "estonian": "et",
+    "basque": "eu",
+    "finnish": "fi",
+    "french": "fr",
+    "canadian french": "fr-CA",
+    "french canadian": "fr-CA",
+    "galician": "gl",
+    "gujarati": "gu",
+    "hausa": "ha",
+    "hindi": "hi",
+    "croatian": "hr",
+    "hungarian": "hu",
+    "indonesian": "id",
+    "icelandic": "is",
+    "italian": "it",
+    "hebrew": "iw",
+    "he": "iw",
+    "japanese": "ja",
+    "javanese": "jw",
+    "khmer": "km",
+    "kannada": "kn",
+    "korean": "ko",
+    "latin": "la",
+    "lithuanian": "lt",
+    "latvian": "lv",
+    "malayalam": "ml",
+    "marathi": "mr",
+    "malay": "ms",
+    "burmese": "my",
+    "myanmar": "my",
+    "nepali": "ne",
+    "dutch": "nl",
+    "norwegian": "no",
+    "punjabi": "pa",
+    "polish": "pl",
+    "portuguese": "pt",
+    "european portuguese": "pt-PT",
+    "portuguese portugal": "pt-PT",
+    "romanian": "ro",
+    "russian": "ru",
+    "sinhala": "si",
+    "sinhalese": "si",
+    "slovak": "sk",
+    "albanian": "sq",
+    "serbian": "sr",
+    "sundanese": "su",
+    "swedish": "sv",
+    "swahili": "sw",
+    "tamil": "ta",
+    "telugu": "te",
+    "thai": "th",
+    "tagalog": "tl",
+    "filipino": "tl",
+    "turkish": "tr",
+    "ukrainian": "uk",
+    "urdu": "ur",
+    "vietnamese": "vi",
+    "cantonese": "yue",
+    "chinese": "zh-CN",
+    "mandarin": "zh-CN",
+    "simplified chinese": "zh-CN",
+    "zh": "zh-CN",
+    "traditional chinese": "zh-TW",
+    "taiwan chinese": "zh-TW"
+  }
+}
