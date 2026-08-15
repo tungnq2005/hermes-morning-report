@@ -1,10 +1,16 @@
-"""Build a .pptx with a consistent layout from an extracted document outline.
+"""Build a .pptx with a consistent, branded layout from an extracted document outline.
 
 Text goes into the layout's own placeholders rather than free-floating textboxes.
 Hand-placed boxes rendered fine but carried no structure: every slide came out on the
 Blank layout with no title placeholder, so PowerPoint's outline view was empty, a
 theme change moved nothing, and importers like Canva saw loose boxes instead of a
 title and a body. Placeholders also bring real bullet formatting and autofit.
+
+Visual identity:
+  * the cover and closing slides sit on a full-bleed navy background with white text;
+  * a heading that names a whole part (Opportunities / Risks) becomes a full-colour
+    section divider, and the content that follows inherits its colour -- green for
+    opportunities, red for risks, navy for everything else.
 """
 from __future__ import annotations
 
@@ -12,11 +18,20 @@ import os
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.dml import MSO_FILL
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Emu, Inches, Pt
 
-ACCENT = RGBColor(0x1F, 0x3A, 0x5F)   # dark blue
+ACCENT = RGBColor(0x1F, 0x3A, 0x5F)   # brand navy (titles, neutral accent bars)
+BRAND_BG = RGBColor(0x0F, 0x2A, 0x4A)  # deep navy for full-bleed backgrounds
+WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+TINT = RGBColor(0xD8, 0xE2, 0xF0)      # light text on dark backgrounds
+OPPORTUNITY = RGBColor(0x1B, 0x7A, 0x43)  # green
+RISK = RGBColor(0xB3, 0x30, 0x1F)         # red
 BODY = RGBColor(0x33, 0x33, 0x33)
 MUTED = RGBColor(0x6B, 0x6B, 0x6B)
+
 MAX_BULLETS_PER_SLIDE = 6
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
@@ -64,10 +79,61 @@ STRINGS = {
            "closing": "Tóm tắt & Q&A", "continued": "tiếp"},
 }
 
+# A heading that names a whole part switches the deck's colour phase; content that
+# follows inherits it until the next switch.
+OPPORTUNITY_MARKERS = ("cơ hội", "co hoi", "opportunit")
+RISK_MARKERS = ("rủi ro", "rui ro", "risk")
+
+
+def _section_color(title: str, level: int, phase: str) -> tuple[str, str]:
+    """Return (color_key, next_phase) for a section title.
+
+    A heading that names a whole part (Opportunities / Risks) switches the deck's
+    colour phase. A sub-heading (level 3) inherits the current phase. Any other
+    top-level heading (level <= 2) resets back to neutral, so trailing sections such
+    as "Watchlist" / "Suggested actions" are not stained by the risks that precede them.
+    """
+    t = title.lower()
+    if any(m in t for m in RISK_MARKERS):
+        return "risk", "risk"
+    if any(m in t for m in OPPORTUNITY_MARKERS):
+        return "opportunity", "opportunity"
+    if level <= 2:
+        return "neutral", "neutral"
+    return phase, phase
+
+
+def _color_for(key: str) -> RGBColor:
+    if key == "opportunity":
+        return OPPORTUNITY
+    if key == "risk":
+        return RISK
+    return ACCENT
+
+
+def _color_background(slide, color: RGBColor) -> None:
+    slide.background.fill.solid()
+    slide.background.fill.fore_color.rgb = color
+
+
+def _background_is_dark(slide) -> bool:
+    try:
+        fill = slide.background.fill
+        if fill.type != MSO_FILL.SOLID:
+            return False
+        rgb = fill.fore_color.rgb
+        if not rgb:
+            return False
+        value = int(str(rgb), 16)
+        r, g, b = (value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF
+        return (r * 299 + g * 587 + b * 114) / 1000 < 128
+    except Exception:  # best-effort: default to light-on-white
+        return False
+
 
 def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
           images: list[str | None] | None = None, subtitle: str = "",
-          credits: list[dict] | None = None) -> dict:
+          credits: list[dict] | None = None, cover_image: str | None = None) -> dict:
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
@@ -77,7 +143,7 @@ def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
     images = [p if p and os.path.exists(p) else None for p in (images or [])]
     words = STRINGS["en" if _is_english(doc) else "vi"]
 
-    _title_slide(prs, doc["title"], subtitle)
+    _title_slide(prs, doc["title"], subtitle, cover_image)
     # Reach min_slides by spreading the real content thinner, never by padding: the
     # deck used to append slides whose only bullet was the literal string "(bổ sung)",
     # and they landed after the closing slide.
@@ -95,15 +161,18 @@ def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
     # neighbours' pictures and push every later one onto the wrong section.
     placed = 0
     rejected: list[str] = []
+    phase = "neutral"
     for sec in content_sections:
         image = images[sec["src"]] if sec["first"] and sec["src"] < len(images) else None
         title = sec["title"] or doc["title"]
+        color_key, phase = _section_color(title, sec.get("level", 2), phase)
         # A heading whose whole body is one short line is a part divider, not a content
         # slide. Rendering it as one leaves a single bullet marooned in white space.
         if _is_divider(sec):
-            embedded = _divider_slide(prs, title, sec["items"][0] if sec["items"] else "", image)
+            embedded = _divider_slide(prs, title, sec["items"][0] if sec["items"] else "",
+                                      image, color_key)
         else:
-            embedded = _bullet_slide(prs, title, sec["items"], image)
+            embedded = _bullet_slide(prs, title, sec["items"], image, _color_for(color_key))
         if image:
             if embedded:
                 placed += 1
@@ -125,10 +194,12 @@ def _paginate(sections: list[dict], words: dict,
     out: list[dict] = []
     for src, sec in enumerate(sections):
         items = sec["items"] or [""]
+        level = sec.get("level", 2)
         for i in range(0, len(items), max_bullets):
             chunk = [t for t in items[i:i + max_bullets] if t]
             title = sec["title"] if i == 0 else f"{sec['title']} ({words['continued']})"
-            out.append({"title": title, "items": chunk, "src": src, "first": i == 0})
+            out.append({"title": title, "items": chunk, "src": src,
+                        "first": i == 0, "level": level})
     return out
 
 
@@ -180,49 +251,48 @@ def _clear_effect_ref(shape) -> None:
         effect_ref.set("idx", "0")
 
 
-def _style_title(placeholder, size=None) -> None:
+def _style_title(placeholder, size=None, color=ACCENT, anchor=MSO_ANCHOR.BOTTOM) -> None:
     """Report titles read left-aligned. The 4:3 master centres them, which on a 16:9
     canvas parks the title off-centre over the dead right-hand strip. The Section
     Header master also upper-cases its title, which mangles Vietnamese diacritics and
     matches no other slide in the deck."""
-    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-
     frame = placeholder.text_frame
     frame.word_wrap = True
-    frame.vertical_anchor = MSO_ANCHOR.BOTTOM
+    frame.vertical_anchor = anchor
     chosen = size or _pick(TITLE_SIZES, len(placeholder.text))
     for para in frame.paragraphs:
         para.alignment = PP_ALIGN.LEFT
         para.font.size = chosen
         para.font.bold = True
-        para.font.color.rgb = ACCENT
+        para.font.color.rgb = color
         para.font._rPr.set("cap", "none")
         for run in para.runs:
             run.font._rPr.set("cap", "none")
 
 
-def _title_slide(prs: Presentation, title: str, subtitle: str) -> None:
-    from pptx.enum.text import PP_ALIGN
-
+def _title_slide(prs: Presentation, title: str, subtitle: str,
+                 cover_image: str | None) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_TITLE])
+    _color_background(slide, BRAND_BG)
+    text_w = Inches(7.1) if cover_image else FULL_W
     slide.shapes.title.text = title
-    # The title box is bottom-anchored, so its text sits against the lower edge: the
-    # rule has to clear that edge or it strikes through the descenders.
-    _fit(slide.shapes.title, MARGIN, Inches(2.1), FULL_W, Inches(1.4))
-    _style_title(slide.shapes.title, size=Pt(40))
+    _fit(slide.shapes.title, MARGIN, Inches(1.3), text_w, Inches(1.8))
+    _style_title(slide.shapes.title, size=Pt(40), color=WHITE, anchor=MSO_ANCHOR.MIDDLE)
     sub = slide.placeholders[1]
     if subtitle:
         sub.text = subtitle
-        _fit(sub, MARGIN, Inches(3.8), FULL_W, Inches(0.9))
+        _fit(sub, MARGIN, Inches(3.4), text_w, Inches(1.0))
         for para in sub.text_frame.paragraphs:
             para.alignment = PP_ALIGN.LEFT
             para.font.size = Pt(18)
-            para.font.color.rgb = MUTED
+            para.font.color.rgb = TINT
     else:
         # An empty placeholder still prints its "Click to add subtitle" prompt in
         # some viewers; drop the shape when there is nothing to say.
         sub._element.getparent().remove(sub._element)
-    _accent_bar(slide, top=Inches(3.62))
+    _accent_bar(slide, top=Inches(3.25), width=text_w, color=WHITE)
+    if cover_image:
+        _place_picture(slide, cover_image, Inches(8.15), Inches(1.1), Inches(4.4), Inches(5.3))
 
 
 def _is_divider(sec: dict) -> bool:
@@ -233,18 +303,18 @@ def _is_divider(sec: dict) -> bool:
     return len(body) <= 1 and sum(len(item) for item in body) <= DIVIDER_MAX_CHARS
 
 
-def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None) -> bool:
-    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-
+def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None,
+                   color_key: str) -> bool:
     slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_SECTION])
+    _color_background(slide, _color_for(color_key))
     text_w = TEXT_W_WITH_IMAGE if image else FULL_W
     slide.shapes.title.text = title
-    _fit(slide.shapes.title, MARGIN, Inches(2.7), text_w, Inches(1.4))
-    _style_title(slide.shapes.title, size=_pick(TITLE_SIZES, len(title)))
-    slide.shapes.title.text_frame.vertical_anchor = MSO_ANCHOR.BOTTOM
+    _fit(slide.shapes.title, MARGIN, TITLE_TOP, text_w, Inches(1.5))
+    _style_title(slide.shapes.title, size=_pick(TITLE_SIZES, len(title)),
+                 color=WHITE, anchor=MSO_ANCHOR.TOP)
 
     body = slide.placeholders[1]
-    _fit(body, MARGIN, Inches(4.3), text_w, Inches(1.1))
+    _fit(body, MARGIN, Inches(2.3), text_w, Inches(1.3))
     if lead:
         body.text = lead
         frame = body.text_frame
@@ -252,33 +322,31 @@ def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None) 
         for para in frame.paragraphs:
             para.alignment = PP_ALIGN.LEFT
             para.font.size = Pt(16)
-            para.font.color.rgb = MUTED
+            para.font.color.rgb = TINT
     else:
         body._element.getparent().remove(body._element)
-    _accent_bar(slide, top=Inches(4.15), width=text_w)
+    _accent_bar(slide, top=TITLE_TOP + Inches(1.65), width=text_w, color=WHITE)
 
     if not image:
         return False
     try:
-        _place_picture(slide, image, PIC_LEFT, BODY_TOP, PIC_W, BODY_H)
+        _place_picture(slide, image, PIC_LEFT, Inches(2.3), PIC_W, SLIDE_H - Inches(3.1))
         return True
     except Exception:
         return False
 
 
 def _bullet_slide(prs: Presentation, title: str, bullets: list[str],
-                  image: str | None = None) -> bool:
+                  image: str | None = None, color: RGBColor = ACCENT) -> bool:
     """Returns whether the picture actually landed -- a format python-pptx refuses
     must not be counted as imagery the deck carries."""
-    from pptx.enum.text import MSO_ANCHOR
-
     layout = LAYOUT_TWO_CONTENT if image else LAYOUT_TITLE_BODY
     slide = prs.slides.add_slide(prs.slide_layouts[layout])
     slide.shapes.title.text = title
     _fit(slide.shapes.title, MARGIN, TITLE_TOP, FULL_W, TITLE_H)
-    _style_title(slide.shapes.title)
+    _style_title(slide.shapes.title, color=color)
     # A rule under the title gives every content slide the same visual anchor.
-    _accent_bar(slide, top=TITLE_TOP + TITLE_H + Inches(0.06), height=Pt(2))
+    _accent_bar(slide, top=TITLE_TOP + TITLE_H + Inches(0.06), height=Pt(2), color=color)
 
     body = slide.placeholders[1]
     _fit(body, MARGIN, BODY_TOP, TEXT_W_WITH_IMAGE if image else FULL_W, BODY_H)
@@ -363,27 +431,23 @@ def _credits_slide(prs: Presentation, credits: list[dict], words: dict) -> None:
 
 
 def _closing_slide(prs: Presentation, title: str, words: dict) -> None:
-    """The Section Header layout stacks its title *below* the text placeholder, which
-    reads as a stray caption above the heading until both are placed explicitly."""
-    from pptx.enum.text import PP_ALIGN
-
+    """Close on a navy panel that mirrors the cover, with the title at the top."""
     slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_SECTION])
+    _color_background(slide, BRAND_BG)
     slide.shapes.title.text = words["closing"]
-    _fit(slide.shapes.title, MARGIN, Inches(2.5), FULL_W, Inches(0.9))
-    _style_title(slide.shapes.title, size=Pt(32))
+    _fit(slide.shapes.title, MARGIN, TITLE_TOP, FULL_W, Inches(1.4))
+    _style_title(slide.shapes.title, size=Pt(32), color=WHITE, anchor=MSO_ANCHOR.TOP)
     body = slide.placeholders[1]
     body.text = title
-    _fit(body, MARGIN, Inches(3.8), FULL_W, Inches(0.8))
+    _fit(body, MARGIN, Inches(2.1), FULL_W, Inches(1.0))
     for para in body.text_frame.paragraphs:
         para.alignment = PP_ALIGN.LEFT
         para.font.size = Pt(16)
-        para.font.color.rgb = MUTED
-    _accent_bar(slide, top=Inches(3.62))
+        para.font.color.rgb = TINT
+    _accent_bar(slide, top=Inches(1.95), color=WHITE)
 
 
 def _accent_bar(slide, top, left=None, width=None, height=Pt(4), color=ACCENT) -> None:
-    from pptx.enum.shapes import MSO_SHAPE
-
     bar = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
         MARGIN if left is None else left,
@@ -406,9 +470,10 @@ def _add_slide_numbers(prs: Presentation) -> None:
     for index, slide in enumerate(prs.slides, 1):
         if index == 1:
             continue
+        color = TINT if _background_is_dark(slide) else MUTED
         box = slide.shapes.add_textbox(SLIDE_W - Inches(1.1), SLIDE_H - Inches(0.6),
                                        Inches(0.7), Inches(0.35))
         para = box.text_frame.paragraphs[0]
         para.text = str(index)
         para.font.size = Pt(11)
-        para.font.color.rgb = MUTED
+        para.font.color.rgb = color

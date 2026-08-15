@@ -241,14 +241,14 @@ def to_markdown(doc: dict) -> str:
 
 
 def outline_sections(doc: dict) -> list[dict]:
-    """Group blocks into sections: [{"title": str, "items": [str]}]."""
+    """Group blocks into sections: [{"title": str, "items": [str], "level": int}]."""
     sections: list[dict] = []
-    current = {"title": "", "items": []}
+    current = {"title": "", "items": [], "level": 2}
     for b in doc["blocks"]:
         if b["kind"] == "heading":
             if current["items"] or current["title"]:
                 sections.append(current)
-            current = {"title": b["text"], "items": []}
+            current = {"title": b["text"], "items": [], "level": b.get("level", 2)}
         elif b["kind"] == "bullet":
             current["items"].append(b["text"])
         else:  # split long paragraphs into slide-sized statements
