@@ -101,12 +101,13 @@ def _fix_bullet_glyph(document, name: str) -> None:
                 rfonts.set(qn("w:" + attr), name)
 
 
-def build_docx(doc: dict, sections: list[dict], out_path: str) -> None:
+def build_docx(doc: dict, out_path: str) -> None:
     import docx
     from docx.shared import Pt, RGBColor
 
     d = docx.Document()
-    for style_name in ("Normal", "Title", "Heading 1", "List Bullet"):
+    for style_name in ("Normal", "Title", "Heading 1", "Heading 2", "Heading 3",
+                       "Heading 4", "List Bullet"):
         try:
             _pin_font(d.styles[style_name], DOCX_FONT)
         except KeyError:
@@ -117,16 +118,22 @@ def build_docx(doc: dict, sections: list[dict], out_path: str) -> None:
     for run in h.runs:
         run.font.name = DOCX_FONT
         run.font.color.rgb = RGBColor(0x1F, 0x3A, 0x5F)
-    for sec in sections:
-        if sec["title"]:
-            heading = d.add_heading(sec["title"], level=1)
+
+    # Walk the blocks rather than the slide outline. `outline_sections` flattens every
+    # paragraph into sentence-sized `items` because that is what slides want; reusing it
+    # here turned every line of prose into a bullet and split long paragraphs across
+    # several of them, so the Word file held no body text at all.
+    for block in doc["blocks"]:
+        if block["kind"] == "heading":
+            heading = d.add_heading(block["text"], level=min(block.get("level", 1), 4))
             for run in heading.runs:
                 run.font.name = DOCX_FONT
-        for item in sec["items"]:
-            p = d.add_paragraph(item, style="List Bullet")
-            for run in p.runs:
-                run.font.name = DOCX_FONT
-                run.font.size = Pt(11)
+            continue
+        style = "List Bullet" if block["kind"] == "bullet" else None
+        p = d.add_paragraph(block["text"], style=style) if style else d.add_paragraph(block["text"])
+        for run in p.runs:
+            run.font.name = DOCX_FONT
+            run.font.size = Pt(11)
     d.save(out_path)
 
 
@@ -252,17 +259,19 @@ def main() -> int:
                 fh.write(doc_io.to_markdown(doc))
         elif args.to == "docx":
             out_path = os.path.join(run_dir, base + ".docx")
-            build_docx(doc, sections, out_path)
+            build_docx(doc, out_path)
         elif args.to == "pptx":
             import build_pptx
             out_path = os.path.join(run_dir, base + ".pptx")
             images, credits = resolve_images(args, doc, sections, run_dir, manifest, build_pptx)
             stats = build_pptx.build(doc, sections, out_path, min_slides=args.min_slides,
                                      images=images, subtitle=args.subtitle, credits=credits)
+            for name in stats.pop("images_rejected", []):
+                manifest["warnings"].append(f"image_embed_failed:{name}")
             manifest.update(stats)
         else:  # pdf from text-ish input: build docx first, then convert
             tmp_docx = os.path.join(run_dir, base + ".docx")
-            build_docx(doc, sections, tmp_docx)
+            build_docx(doc, tmp_docx)
             out_path = to_pdf(tmp_docx, run_dir)
 
         manifest.update({"success": True, "output": out_path, "title": doc["title"]})

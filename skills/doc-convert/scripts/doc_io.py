@@ -17,6 +17,30 @@ _DRIVE_FILE_RE = re.compile(r"drive\.google\.com/(?:file/d/|open\?id=|uc\?.*id=)
 _GDOC_RE = re.compile(r"docs\.google\.com/document/d/([\w-]+)")
 _GSLIDES_RE = re.compile(r"docs\.google\.com/presentation/d/([\w-]+)")
 
+# Markdown used to be handled line-first only: headings and bullet markers were
+# consumed, everything inline was passed through verbatim. Slides carry plain
+# strings -- there is no formatting for `**` to become -- so the markers landed on
+# screen as literal asterisks and backticks. Strip them to their text instead.
+_MD_HR_RE = re.compile(r"^(?:\s*[-*_]){3,}\s*$")
+_MD_QUOTE_RE = re.compile(r"^>\s?")
+_MD_INLINE_SUBS = (
+    (re.compile(r"!\[([^\]]*)\]\([^)]*\)"), r"\1"),                  # image -> alt text
+    (re.compile(r"\[([^\]]+)\]\([^)]*\)"), r"\1"),                   # link -> label
+    (re.compile(r"(\*\*\*|___)(.+?)\1"), r"\2"),                     # bold italic
+    (re.compile(r"(\*\*|__)(.+?)\1"), r"\2"),                        # bold
+    (re.compile(r"(?<!\w)([*_])(?!\s)(.+?)(?<!\s)\1(?!\w)"), r"\2"),  # italic
+    (re.compile(r"~~(.+?)~~"), r"\1"),                               # strikethrough
+    (re.compile(r"`+([^`]+)`+"), r"\1"),                             # inline code
+)
+
+
+def strip_inline_md(text: str) -> str:
+    """Reduce inline markdown to the words it decorates. Bold before italic: a
+    single-asterisk pass would otherwise eat the outer pair of `**bold**`."""
+    for pattern, repl in _MD_INLINE_SUBS:
+        text = pattern.sub(repl, text)
+    return text.strip()
+
 
 class DocConvertError(Exception):
     """User-visible conversion error."""
@@ -178,19 +202,28 @@ def _extract_text(path: str, markdown: bool) -> dict:
         if not stripped:
             flush()
             continue
+        if markdown:
+            # A rule separates blocks, it is not content -- and `* * *` would
+            # otherwise be read as a bullet. Check it before the bullet branch.
+            if _MD_HR_RE.match(stripped):
+                flush()
+                continue
+            stripped = _MD_QUOTE_RE.sub("", stripped)
         m = re.match(r"^(#{1,6})\s+(.*)$", stripped) if markdown else None
         if m:
             flush()
             level = len(m.group(1))
             if level == 1 and not title:
-                title = m.group(2).strip()
+                title = strip_inline_md(m.group(2))
             else:
-                blocks.append({"kind": "heading", "level": min(level, 3), "text": m.group(2).strip()})
+                blocks.append({"kind": "heading", "level": min(level, 3),
+                               "text": strip_inline_md(m.group(2))})
         elif markdown and re.match(r"^[-*+]\s+", stripped):
             flush()
-            blocks.append({"kind": "bullet", "level": 1, "text": re.sub(r"^[-*+]\s+", "", stripped)})
+            blocks.append({"kind": "bullet", "level": 1,
+                           "text": strip_inline_md(re.sub(r"^[-*+]\s+", "", stripped))})
         else:
-            para.append(stripped)
+            para.append(strip_inline_md(stripped) if markdown else stripped)
     flush()
     return {"title": title, "blocks": blocks}
 
@@ -208,14 +241,14 @@ def to_markdown(doc: dict) -> str:
 
 
 def outline_sections(doc: dict) -> list[dict]:
-    """Group blocks into sections: [{"title": str, "items": [str]}]."""
+    """Group blocks into sections: [{"title": str, "items": [str], "level": int}]."""
     sections: list[dict] = []
-    current = {"title": "", "items": []}
+    current = {"title": "", "items": [], "level": 2}
     for b in doc["blocks"]:
         if b["kind"] == "heading":
             if current["items"] or current["title"]:
                 sections.append(current)
-            current = {"title": b["text"], "items": []}
+            current = {"title": b["text"], "items": [], "level": b.get("level", 2)}
         elif b["kind"] == "bullet":
             current["items"].append(b["text"])
         else:  # split long paragraphs into slide-sized statements
