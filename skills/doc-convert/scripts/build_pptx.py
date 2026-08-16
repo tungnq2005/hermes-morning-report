@@ -14,7 +14,9 @@ Visual identity:
 """
 from __future__ import annotations
 
+import math
 import os
+import re
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -31,6 +33,7 @@ OPPORTUNITY = RGBColor(0x1B, 0x7A, 0x43)  # green
 RISK = RGBColor(0xB3, 0x30, 0x1F)         # red
 BODY = RGBColor(0x33, 0x33, 0x33)
 MUTED = RGBColor(0x6B, 0x6B, 0x6B)
+CARD_BG = RGBColor(0xF4, 0xF6, 0xFB)   # light card fill
 
 MAX_BULLETS_PER_SLIDE = 6
 SLIDE_W = Inches(13.333)
@@ -63,7 +66,7 @@ LAYOUT_SECTION = 2      # Section Header
 # so a deck that overflows opens overflowing however the tag is set. The sizes below
 # are tried largest-first and the first one whose estimated block height fits wins;
 # normAutofit stays on only as a backstop for renderers that disagree with the estimate.
-BODY_SIZE_CHOICES = (Pt(18), Pt(16), Pt(14), Pt(12), Pt(11))
+BODY_SIZE_CHOICES = (Pt(20), Pt(18), Pt(16), Pt(14), Pt(12), Pt(11))
 # Calibri/Carlito average out near half the point size per character at body weights.
 AVG_CHAR_WIDTH_EM = 0.50
 LINE_HEIGHT_EM = 1.22
@@ -83,6 +86,10 @@ STRINGS = {
 # follows inherits it until the next switch.
 OPPORTUNITY_MARKERS = ("cơ hội", "co hoi", "opportunit")
 RISK_MARKERS = ("rủi ro", "rui ro", "risk")
+# Titles that read as a list of short pointers -> a card grid instead of one long
+# bullet column (watchlist, actions, recommendations).
+CARD_MARKERS = ("chỉ báo", "theo dõi", "hành động", "đề xuất", "khuyến nghị",
+                "watch", "action", "suggest", "recommend", "next step")
 
 
 def _section_color(title: str, level: int, phase: str) -> tuple[str, str]:
@@ -131,6 +138,47 @@ def _background_is_dark(slide) -> bool:
         return False
 
 
+# --- content-aware templates --------------------------------------------------
+_STAT_NUM_RE = re.compile(r"\d[\d.,]*")
+_STAT_UNIT_RE = re.compile(
+    r"(?:\s*(?:%|tỉ|triệu|nghìn|lần|[x×]|USD|\$|ngày|giờ|tháng|năm|điểm|bil\.?|mil\.?)){1,3}",
+    re.IGNORECASE,
+)
+
+
+def _find_stat_span(text: str) -> tuple[int, int] | None:
+    """Span of the salient figure in a news bullet: the last number carrying a unit
+    (%, tỉ, triệu, lần, ngày, USD, ...). Bare numbers are ignored so we do not big-up
+    "Nghị định 142" or the "2" in "C2PA"."""
+    with_unit = None
+    for m in _STAT_NUM_RE.finditer(text):
+        start, end = m.start(), m.end()
+        unit = _STAT_UNIT_RE.match(text[end:])
+        if unit:
+            end += unit.end()
+            with_unit = (start, end)
+    return with_unit
+
+
+def _is_stat_section(items: list[str]) -> bool:
+    items = [i for i in items if i.strip()]
+    return 2 <= len(items) <= 4 and sum(1 for i in items if _find_stat_span(i)) >= 2
+
+
+def _lead_span(text: str) -> tuple[int, int] | None:
+    """Span of a bullet's headline lead-in (before the first em dash). Bolded so the
+    point reads at a glance."""
+    at = text.find("—")
+    return (0, at) if 0 < at <= 70 else None
+
+
+def _is_card_section(title: str, items: list[str]) -> bool:
+    items = [i for i in items if i.strip()]
+    if not (2 <= len(items) <= 6) or not all(len(i) <= 160 for i in items):
+        return False
+    return any(m in title.lower() for m in CARD_MARKERS)
+
+
 def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
           images: list[str | None] | None = None, subtitle: str = "",
           credits: list[dict] | None = None, cover_image: str | None = None) -> dict:
@@ -166,17 +214,26 @@ def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
         image = images[sec["src"]] if sec["first"] and sec["src"] < len(images) else None
         title = sec["title"] or doc["title"]
         color_key, phase = _section_color(title, sec.get("level", 2), phase)
+        color = _color_for(color_key)
         # A heading whose whole body is one short line is a part divider, not a content
         # slide. Rendering it as one leaves a single bullet marooned in white space.
         if _is_divider(sec):
             embedded = _divider_slide(prs, title, sec["items"][0] if sec["items"] else "",
                                       image, color_key)
+            uses_image = True
+        elif _is_stat_section(sec["items"]):
+            _stat_slide(prs, title, sec["items"], color)
+            embedded, uses_image = False, False
+        elif _is_card_section(title, sec["items"]):
+            _card_slide(prs, title, sec["items"], color)
+            embedded, uses_image = False, False
         else:
-            embedded = _bullet_slide(prs, title, sec["items"], image, _color_for(color_key))
+            embedded = _bullet_slide(prs, title, sec["items"], image, color)
+            uses_image = True
         if image:
             if embedded:
                 placed += 1
-            else:
+            elif uses_image:
                 rejected.append(os.path.basename(image))
     if credits:
         _credits_slide(prs, credits, words)
@@ -220,7 +277,7 @@ def _pick(sizes, measure: int):
     return sizes[-1][1]
 
 
-def estimated_text_height(bullets: list[str], size, width, space_after=Pt(10)):
+def estimated_text_height(bullets: list[str], size, width, space_after=Pt(8)):
     """Rough height of a bulleted block. Deliberately renderer-independent: it must
     hold for PowerPoint (Calibri) and LibreOffice (Carlito), whose metrics match."""
     if not bullets:
@@ -249,6 +306,16 @@ def _clear_effect_ref(shape) -> None:
     effect_ref = style.find(qn("a:effectRef"))
     if effect_ref is not None:
         effect_ref.set("idx", "0")
+
+
+def _strip_style_ref(shape) -> None:
+    """Remove a shape's <p:style> so renderer-independent checks treat it as inert
+    furniture (a full-bleed background scrim), not an accent rule."""
+    from pptx.oxml.ns import qn
+
+    style = shape._element.find(qn("p:style"))
+    if style is not None:
+        shape._element.remove(style)
 
 
 def _style_title(placeholder, size=None, color=ACCENT, anchor=MSO_ANCHOR.BOTTOM) -> None:
@@ -292,7 +359,7 @@ def _title_slide(prs: Presentation, title: str, subtitle: str,
         sub._element.getparent().remove(sub._element)
     _accent_bar(slide, top=Inches(3.25), width=text_w, color=WHITE)
     if cover_image:
-        _place_picture(slide, cover_image, Inches(8.15), Inches(1.1), Inches(4.4), Inches(5.3))
+        _place_picture_cover(slide, cover_image, Inches(8.15), Inches(1.1), Inches(4.4), Inches(5.3))
 
 
 def _is_divider(sec: dict) -> bool:
@@ -305,9 +372,29 @@ def _is_divider(sec: dict) -> bool:
 
 def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None,
                    color_key: str) -> bool:
+    color = _color_for(color_key)
     slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_SECTION])
-    _color_background(slide, _color_for(color_key))
-    text_w = TEXT_W_WITH_IMAGE if image else FULL_W
+    image_placed = False
+    if image:
+        try:
+            # Full-bleed photo tinted with the section colour, title on top.
+            picture = _place_picture_cover(slide, image, 0, 0, SLIDE_W, SLIDE_H)
+            scrim = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
+            scrim.fill.solid()
+            scrim.fill.fore_color.rgb = color
+            _set_fill_alpha(scrim, 70)
+            scrim.line.fill.background()
+            scrim.shadow.inherit = False
+            _strip_style_ref(scrim)
+            _send_to_back(scrim)
+            _send_to_back(picture)
+            image_placed = True
+        except Exception:
+            _color_background(slide, color)
+    else:
+        _color_background(slide, color)
+
+    text_w = FULL_W
     slide.shapes.title.text = title
     _fit(slide.shapes.title, MARGIN, TITLE_TOP, text_w, Inches(1.5))
     _style_title(slide.shapes.title, size=_pick(TITLE_SIZES, len(title)),
@@ -327,13 +414,7 @@ def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None,
         body._element.getparent().remove(body._element)
     _accent_bar(slide, top=TITLE_TOP + Inches(1.65), width=text_w, color=WHITE)
 
-    if not image:
-        return False
-    try:
-        _place_picture(slide, image, PIC_LEFT, Inches(2.3), PIC_W, SLIDE_H - Inches(3.1))
-        return True
-    except Exception:
-        return False
+    return image_placed
 
 
 def _bullet_slide(prs: Presentation, title: str, bullets: list[str],
@@ -352,18 +433,23 @@ def _bullet_slide(prs: Presentation, title: str, bullets: list[str],
     _fit(body, MARGIN, BODY_TOP, TEXT_W_WITH_IMAGE if image else FULL_W, BODY_H)
     frame = body.text_frame
     frame.word_wrap = True
-    # A slide carrying one short line looks abandoned pinned to the top edge.
-    frame.vertical_anchor = MSO_ANCHOR.MIDDLE if len(bullets) <= 2 else MSO_ANCHOR.TOP
+    # A slide carrying a couple of short lines looks abandoned pinned to the top edge.
+    frame.vertical_anchor = MSO_ANCHOR.MIDDLE if len(bullets) <= 3 else MSO_ANCHOR.TOP
     # Let PowerPoint shrink the text if it still overflows the placeholder.
     _enable_shrink_on_overflow(frame)
     size = _fitting_body_size(bullets, body.width, body.height)
     for i, text in enumerate(bullets):
         para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
-        para.text = text
         para.level = 0
         para.font.size = size
         para.font.color.rgb = BODY
-        para.space_after = Pt(10)
+        para.space_after = Pt(8)
+        span = _lead_span(text)
+        if span:
+            _add_run(para, text[:span[1]], size, BODY, bold=True)
+            _add_run(para, text[span[1]:], size, BODY)
+        else:
+            _add_run(para, text, size, BODY)
 
     if not image:
         return False
@@ -372,20 +458,134 @@ def _bullet_slide(prs: Presentation, title: str, bullets: list[str],
     picture_ph = slide.placeholders[2]
     picture_ph._element.getparent().remove(picture_ph._element)
     try:
-        _place_picture(slide, image, PIC_LEFT, BODY_TOP, PIC_W, BODY_H)
+        _place_picture_cover(slide, image, PIC_LEFT, BODY_TOP, PIC_W, BODY_H)
         return True
     except Exception:
         return False  # bad image must not break the deck; the caller reports it
 
 
-def _place_picture(slide, image: str, left, top, width, height) -> None:
-    """Fit the picture inside the placeholder's box without distorting it."""
-    picture = slide.shapes.add_picture(image, left, top)
-    scale = min(width / picture.width, height / picture.height)
-    picture.width = Emu(int(picture.width * scale))
-    picture.height = Emu(int(picture.height * scale))
-    picture.left = Emu(int(left + (width - picture.width) / 2))
-    picture.top = Emu(int(top + (height - picture.height) / 2))
+def _place_picture_cover(slide, image: str, left, top, width, height):
+    """Fill the box with the picture, centre-cropping so it covers without distorting."""
+    picture = slide.shapes.add_picture(image, left, top, width, height)
+    w0, h0 = picture.image.size
+    if w0 / h0 > width / height:
+        crop = 1 - (h0 * width) / (height * w0)
+        picture.crop_left = crop / 2
+        picture.crop_right = crop / 2
+    else:
+        crop = 1 - (w0 * height) / (width * h0)
+        picture.crop_top = crop / 2
+        picture.crop_bottom = crop / 2
+    return picture
+
+
+def _send_to_back(shape) -> None:
+    sp_tree = shape._element.getparent()
+    sp_tree.remove(shape._element)
+    sp_tree.insert(2, shape._element)
+
+
+def _set_fill_alpha(shape, opacity_pct: float) -> None:
+    """Set the solid fill's opacity (0-100). Used to tint a photo behind a divider."""
+    from pptx.oxml.ns import qn
+
+    solid = shape._element.spPr.find(qn("a:solidFill"))
+    srgb = solid.find(qn("a:srgbClr")) if solid is not None else None
+    if srgb is None:
+        return
+    for alpha in srgb.findall(qn("a:alpha")):
+        srgb.remove(alpha)
+    srgb.append(srgb.makeelement(qn("a:alpha"), {"val": str(int(opacity_pct * 1000))}))
+
+
+def _add_run(para, text: str, size, color: RGBColor, bold: bool = False) -> None:
+    if not text:
+        return
+    run = para.add_run()
+    run.text = text
+    run.font.size = size
+    run.font.color.rgb = color
+    run.font.bold = bold
+
+
+def _card_backdrop(slide, left, top, width, height, color: RGBColor):
+    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
+    card.fill.solid()
+    card.fill.fore_color.rgb = CARD_BG
+    card.line.color.rgb = color
+    card.line.width = Pt(1.25)
+    card.shadow.inherit = False
+    _clear_effect_ref(card)
+    return card
+
+
+def _stat_slide(prs: Presentation, title: str, items: list[str], color: RGBColor) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_TITLE_BODY])
+    slide.shapes.title.text = title
+    _fit(slide.shapes.title, MARGIN, TITLE_TOP, FULL_W, TITLE_H)
+    _style_title(slide.shapes.title, color=color)
+    _accent_bar(slide, top=TITLE_TOP + TITLE_H + Inches(0.06), height=Pt(2), color=color)
+    slide.placeholders[1]._element.getparent().remove(slide.placeholders[1]._element)
+
+    items = [i for i in items if i.strip()]
+    gap = Inches(0.16)
+    card_h = min((SLIDE_H - BODY_TOP - Inches(0.5) - gap * (len(items) - 1)) / len(items),
+                 Inches(1.3))
+    top = BODY_TOP
+    for item in items:
+        card = _card_backdrop(slide, MARGIN, top, FULL_W, card_h, color)
+        tf = card.text_frame
+        tf.word_wrap = True
+        tf.margin_left = Inches(0.3)
+        tf.margin_right = Inches(0.15)
+        tf.margin_top = Inches(0.1)
+        tf.margin_bottom = Inches(0.08)
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        span = _find_stat_span(item)
+        head = tf.paragraphs[0]
+        if span:
+            head.font.size = Pt(24)
+            _add_run(head, item[span[0]:span[1]], Pt(24), color, bold=True)
+            body = tf.add_paragraph()
+            body.font.size = Pt(14)
+            _add_run(body, item, Pt(14), BODY)
+        else:
+            head.font.size = Pt(15)
+            _add_run(head, item, Pt(15), BODY)
+        top += card_h + gap
+
+
+def _card_slide(prs: Presentation, title: str, items: list[str], color: RGBColor) -> None:
+    slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_TITLE_BODY])
+    slide.shapes.title.text = title
+    _fit(slide.shapes.title, MARGIN, TITLE_TOP, FULL_W, TITLE_H)
+    _style_title(slide.shapes.title, color=color)
+    _accent_bar(slide, top=TITLE_TOP + TITLE_H + Inches(0.06), height=Pt(2), color=color)
+    slide.placeholders[1]._element.getparent().remove(slide.placeholders[1]._element)
+
+    items = [i for i in items if i.strip()]
+    cols = 3 if len(items) in (3, 5, 6) else 2
+    gap = Inches(0.24)
+    card_w = (FULL_W - gap * (cols - 1)) / cols
+    rows = math.ceil(len(items) / cols)
+    card_h = min((SLIDE_H - BODY_TOP - Inches(0.5) - gap * (rows - 1)) / rows, Inches(1.3))
+    for i, item in enumerate(items):
+        r, c = divmod(i, cols)
+        card = _card_backdrop(slide, MARGIN + c * (card_w + gap),
+                              BODY_TOP + r * (card_h + gap), card_w, card_h, color)
+        tf = card.text_frame
+        tf.word_wrap = True
+        tf.margin_left = Inches(0.2)
+        tf.margin_right = Inches(0.2)
+        tf.margin_top = Inches(0.12)
+        tf.margin_bottom = Inches(0.08)
+        tf.vertical_anchor = MSO_ANCHOR.TOP
+        num = tf.paragraphs[0]
+        num.font.size = Pt(20)
+        _add_run(num, str(i + 1), Pt(20), color, bold=True)
+        text = tf.add_paragraph()
+        text.font.size = Pt(14)
+        _add_run(text, item, Pt(14), BODY)
 
 
 def _enable_shrink_on_overflow(frame) -> None:
@@ -425,7 +625,7 @@ def _credits_slide(prs: Presentation, credits: list[dict], words: dict) -> None:
     for i, line in enumerate(lines):
         para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
         para.text = line
-        para.font.size = Pt(13)
+        para.font.size = Pt(14)
         para.font.color.rgb = MUTED
         para.space_after = Pt(6)
 
@@ -435,16 +635,16 @@ def _closing_slide(prs: Presentation, title: str, words: dict) -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[LAYOUT_SECTION])
     _color_background(slide, BRAND_BG)
     slide.shapes.title.text = words["closing"]
-    _fit(slide.shapes.title, MARGIN, TITLE_TOP, FULL_W, Inches(1.4))
-    _style_title(slide.shapes.title, size=Pt(32), color=WHITE, anchor=MSO_ANCHOR.TOP)
+    _fit(slide.shapes.title, MARGIN, TITLE_TOP, FULL_W, Inches(1.5))
+    _style_title(slide.shapes.title, size=Pt(40), color=WHITE, anchor=MSO_ANCHOR.TOP)
     body = slide.placeholders[1]
     body.text = title
-    _fit(body, MARGIN, Inches(2.1), FULL_W, Inches(1.0))
+    _fit(body, MARGIN, Inches(2.3), FULL_W, Inches(1.2))
     for para in body.text_frame.paragraphs:
         para.alignment = PP_ALIGN.LEFT
-        para.font.size = Pt(16)
+        para.font.size = Pt(20)
         para.font.color.rgb = TINT
-    _accent_bar(slide, top=Inches(1.95), color=WHITE)
+    _accent_bar(slide, top=Inches(2.05), color=WHITE)
 
 
 def _accent_bar(slide, top, left=None, width=None, height=Pt(4), color=ACCENT) -> None:
