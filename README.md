@@ -35,10 +35,24 @@ Telegram  ──long-polling──►  Hermes Gateway (native, systemd, 127.0.0.
 ```
 skills/morning-report/   Skill bản tin sáng (D1)
 skills/doc-convert/       Skill chuyển đổi tài liệu (D2)
-setup/                    Script cài đặt VPS + config.env.example
+setup/                    Script cài đặt: VPS Ubuntu (setup_all_hermes.sh)
+                          + macOS desktop (install-mac.sh, install-doc-addon.sh, lib/)
 docs/                     Hướng dẫn người dùng + vận hành (song ngữ VI/EN)
 SOUL.md                   Tài liệu Hermes agent
 ```
+
+## Hai đường cài đặt (chọn 1)
+
+| | **VPS Ubuntu** | **macOS desktop luôn bật** |
+|---|---|---|
+| Script | `setup/setup_all_hermes.sh` | `setup/install-mac.sh` |
+| Service | systemd user + linger | launchd LaunchAgent |
+| Ưu điểm | Chạy 24/7 không cần ai đăng nhập | Dùng máy khách hàng đã có, không phí hosting |
+| Ràng buộc | Phí VPS hàng tháng | Máy phải **bật + đang đăng nhập**; reboot phải đăng nhập lại |
+| Tài liệu | [setup/README.md](setup/README.md) | [docs/install-mac.md](docs/install-mac.md) (EN) |
+
+Không có đường nào là "mặc định khuyến nghị": VPS ổn định hơn, macOS tận dụng hardware
+có sẵn. Tài liệu macOS viết bằng tiếng Anh cho khách hàng cuối.
 
 ## Cài đặt nhanh (VPS Ubuntu)
 
@@ -59,8 +73,29 @@ chmod +x setup_all_hermes.sh scripts/*.sh
 Chi tiết từng bước + wizard tương tác: xem [setup/README.md](setup/README.md).
 Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key, **Exa, Firecrawl & Brave (optional) API keys**, Google OAuth) — repo không chứa secret nào.
 
+## Install on an always-on Mac (English)
+
+For a Mac Studio / Mac mini that stays powered on and logged in. One command installs
+**both** skills — the morning report first, then document conversion:
+
+```bash
+curl -fsSL https://<host>/install-mac.sh | bash
+```
+
+It asks for the 4 API keys, validates each one on the spot, installs the gateway as a
+LaunchAgent, turns off system sleep, installs a watchdog that alerts Telegram directly
+if the bot dies, and finishes with a real report delivered through the real cron path.
+
+Read before installing: [docs/install-mac.md](docs/install-mac.md) ·
+limits: [docs/limits-mac.md](docs/limits-mac.md) ·
+when something breaks: [docs/troubleshoot-mac.md](docs/troubleshoot-mac.md)
+
+Do **not** use `setup_all_hermes.sh` on macOS — it is Ubuntu-only (`apt`, `systemd`,
+`getent`).
+
 ## Tài liệu
 
+- Cài trên macOS (EN): [docs/install-mac.md](docs/install-mac.md) · [limits](docs/limits-mac.md) · [troubleshooting](docs/troubleshoot-mac.md)
 - Người dùng cuối: [docs/user-guide.vi.md](docs/user-guide.vi.md) · [EN](docs/user-guide.en.md)
 - Bảng lệnh nhanh: [docs/chat-commands.md](docs/chat-commands.md)
 - Vận hành/quản trị: [docs/operator-runbook.vi.md](docs/operator-runbook.vi.md) · [EN](docs/operator-runbook.en.md)
