@@ -31,7 +31,7 @@ from helpers.check_topic_config import check_topic_config
 
 # Paths and runtime defaults
 # Use .absolute() (not .resolve()) so the ~/.hermes invocation path is preserved.
-# .resolve() follows the symlink to the repo path (openclaw-morning_report/...), which breaks MEDIA delivery.
+# .resolve() follows the symlink to the repo path (hermes-morning-report/...), which breaks MEDIA delivery.
 SCRIPT_DIR = Path(__file__).absolute().parent
 SKILL_DIR = SCRIPT_DIR.parent
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))

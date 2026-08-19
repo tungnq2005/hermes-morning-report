@@ -26,11 +26,11 @@ Hermes Gateway  ── NATIVE install, systemd user service (hermes-gateway.serv
 |---|---|
 | Secrets (tokens/keys) | `~/.hermes/.env` (mode 600) |
 | Hermes config | `~/.hermes/config.yaml` |
-| Skills | `~/.hermes/skills/` (symlinked from repo `openclaw-morning_report/skills/`) |
+| Skills | `~/.hermes/skills/` (symlinked from repo `hermes-morning-report/skills/`) |
 | Report history (per-topic, manifest.json/run) | `~/.hermes/skills/productivity/morning-report/state/history/` |
 | Cron run output | `~/.hermes/cron/output/<job-id>/` |
 | Gateway logs | `journalctl --user -u hermes-gateway.service` (or `hermes logs`) |
-| Scripts + docs | `openclaw-morning_report/` directory (repo) |
+| Scripts + docs | `hermes-morning-report/` directory (repo) |
 
 > Hermes auto-loads `~/.hermes/.env` via `HERMES_HOME` — no manual env sourcing needed. The skill also loads `.env` on each run.
 
@@ -40,7 +40,7 @@ Hermes Gateway  ── NATIVE install, systemd user service (hermes-gateway.serv
 # Status + health
 systemctl --user status hermes-gateway.service
 hermes gateway status --deep
-bash openclaw-morning_report/setup/scripts/healthcheck_hermes.sh   # prints JSON ok/problems
+bash hermes-morning-report/setup/scripts/healthcheck_hermes.sh   # prints JSON ok/problems
 
 # Restart the gateway
 hermes gateway restart

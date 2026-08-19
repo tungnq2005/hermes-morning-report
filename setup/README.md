@@ -9,7 +9,7 @@ Bộ script + tài liệu để deploy trợ lý AI Telegram (Hermes Agent, cài
 ## Cấu trúc
 
 ```
-openclaw-morning_report/
+hermes-morning-report/
 ├── config.env                 <- SỬA TRƯỚC: user, timezone, giờ gửi, search provider (gate 08)
 ├── setup_all_hermes.sh        <- chạy tất cả các bước theo thứ tự
 ├── scripts/
@@ -30,8 +30,8 @@ openclaw-morning_report/
 
 ```bash
 # SSH vào VPS Ubuntu rồi clone repo — bước 04 symlink skill từ chính bản clone.
-git clone https://github.com/tungnq2005/openclaw-morning_report.git
-cd openclaw-morning_report/setup
+git clone https://github.com/tungnq2005/hermes-morning-report.git
+cd hermes-morning-report/setup
 chmod +x setup_all_hermes.sh scripts/*.sh
 
 cp config.env.example config.env   # setup_all_hermes.sh source config.env, không phải .example

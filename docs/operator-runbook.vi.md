@@ -26,11 +26,11 @@ Hermes Gateway  ── cài NATIVE, systemd user service (hermes-gateway.service
 |---|---|
 | Secrets (token/key) | `~/.hermes/.env` (quyền 600) |
 | Config Hermes | `~/.hermes/config.yaml` |
-| Skills | `~/.hermes/skills/` (symlink từ repo `openclaw-morning_report/skills/`) |
+| Skills | `~/.hermes/skills/` (symlink từ repo `hermes-morning-report/skills/`) |
 | Lịch sử bản tin (per-topic, manifest.json/run) | `~/.hermes/skills/productivity/morning-report/state/history/` |
 | Output cron run | `~/.hermes/cron/output/<job-id>/` |
 | Log gateway | `journalctl --user -u hermes-gateway.service` (hoặc `hermes logs`) |
-| Bộ script + docs | thư mục `openclaw-morning_report/` (repo) |
+| Bộ script + docs | thư mục `hermes-morning-report/` (repo) |
 
 > Hermes tự load `~/.hermes/.env` qua `HERMES_HOME` — không cần nạp env thủ công. Skill cũng tự load `.env` mỗi run.
 
@@ -40,7 +40,7 @@ Hermes Gateway  ── cài NATIVE, systemd user service (hermes-gateway.service
 # Trạng thái + sức khoẻ
 systemctl --user status hermes-gateway.service
 hermes gateway status --deep
-bash openclaw-morning_report/setup/scripts/healthcheck_hermes.sh   # JSON ok/problems
+bash hermes-morning-report/setup/scripts/healthcheck_hermes.sh   # JSON ok/problems
 
 # Khởi động lại gateway
 hermes gateway restart

@@ -44,10 +44,10 @@ SOUL.md                   Tài liệu Hermes agent
 
 ```bash
 # 1. Copy repo lên VPS
-scp -r openclaw-morning_report <user>@<IP_VPS>:~/
+scp -r hermes-morning-report <user>@<IP_VPS>:~/
 
 # 2. SSH vào, chuẩn bị config
-cd ~/openclaw-morning_report/setup
+cd ~/hermes-morning-report/setup
 sed -i 's/\r$//' setup_all_hermes.sh config.env.example scripts/*.sh
 cp config.env.example config.env      # sửa OC_USER, timezone, giờ gửi, search provider
 chmod +x setup_all_hermes.sh scripts/*.sh
