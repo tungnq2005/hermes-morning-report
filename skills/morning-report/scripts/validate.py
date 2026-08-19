@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
-from helpers.history import record_report_validation
+from helpers.history import MANIFEST_FILE, REPORT_FILE, load_manifest, record_report_validation
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
@@ -232,7 +233,63 @@ def first_match(pattern: re.Pattern[str], text: str) -> str | None:
     return match.group(0).strip() if match else None
 
 
-def validate_audio(text: str, min_words: int, max_words: int, wpm: int) -> dict[str, Any]:
+# An audio script is a retelling of the report -- it carries no sources, no links and no
+# figures the listener can check, so it inherits whatever the report established and
+# nothing else. Validating it on its own only proves it *sounds* like a bulletin: the
+# word-count and cleanliness checks below all pass on a script retelling a report that
+# failed validation, or one that was never written. The run manifest is the only
+# deterministic evidence that a report passed, so audio is gated on it.
+def check_report_gate(run_dir: Path) -> list[dict[str, str]]:
+    manifest_path = run_dir / MANIFEST_FILE
+    if not manifest_path.exists():
+        return [{
+            "code": "report_not_validated",
+            "message": f"No {MANIFEST_FILE} in {run_dir}. Run --type report --run-dir "
+                       "on the report first; the audio script has nothing to retell.",
+        }]
+    try:
+        manifest = load_manifest(run_dir)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [{"code": "report_not_validated", "message": f"Cannot read {manifest_path}: {exc}"}]
+
+    report = manifest.get("report")
+    report = report if isinstance(report, dict) else {}
+    status = report.get("status")
+    if status != "validated":
+        return [{
+            "code": "report_not_validated",
+            "message": f"Report status in the manifest is '{status or 'pending'}', not 'validated'. "
+                       "Fix the report and re-run --type report before generating audio.",
+        }]
+
+    report_path = run_dir / str(report.get("file") or REPORT_FILE)
+    if not report_path.exists():
+        return [{
+            "code": "report_file_missing",
+            "message": f"Manifest says the report was validated but {report_path} is gone.",
+        }]
+
+    # A report edited after it passed is a report nobody validated. The manifest keeps the
+    # digest of the exact text that passed, so the drift is detectable rather than assumed.
+    recorded = report.get("sha256")
+    actual = hashlib.sha256(report_path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()[:12]
+    if recorded and recorded != actual:
+        return [{
+            "code": "report_changed_after_validation",
+            "message": f"{report_path.name} changed after it was validated "
+                       f"(recorded {recorded}, now {actual}). Re-run --type report.",
+        }]
+    return []
+
+
+def validate_audio(
+    text: str,
+    min_words: int,
+    max_words: int,
+    wpm: int,
+    run_dir: Path | None = None,
+    skip_report_gate: bool = False,
+) -> dict[str, Any]:
     normalized = normalize_text(text)
     word_count = count_words(normalized)
     issues: list[dict[str, str]] = []
@@ -260,10 +317,25 @@ def validate_audio(text: str, min_words: int, max_words: int, wpm: int) -> dict[
         if sample:
             issues.append({"code": code, "message": message, "sample": sample[:120]})
 
+    if skip_report_gate:
+        report_gate = "skipped"
+    elif run_dir is None:
+        report_gate = "fail"
+        issues.append({
+            "code": "run_dir_required",
+            "message": "--run-dir is required for --type audio so the validated report can be "
+                       "checked. Use --skip-report-gate only when testing the voice itself.",
+        })
+    else:
+        gate_issues = check_report_gate(run_dir)
+        issues.extend(gate_issues)
+        report_gate = "fail" if gate_issues else "pass"
+
     estimated_minutes = round(word_count / wpm, 2) if wpm > 0 else None
     return {
         "ok": not issues,
         "type": "audio",
+        "report_gate": report_gate,
         "word_count": word_count,
         "char_count": len(normalized),
         "estimated_minutes": estimated_minutes,
@@ -310,6 +382,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-words", type=int, default=DEFAULT_MIN_WORDS)
     p.add_argument("--max-words", type=int, default=DEFAULT_MAX_WORDS)
     p.add_argument("--wpm", type=int, default=DEFAULT_WPM)
+    p.add_argument(
+        "--skip-report-gate",
+        action="store_true",
+        help="Validate the script without a validated report behind it. For testing the "
+             "voice/TTS in isolation only -- never for a report that gets delivered.",
+    )
     # Shared
     p.add_argument("--run-dir", help="History run directory")
     p.add_argument("--no-fail", action="store_true")
@@ -329,7 +407,14 @@ def main() -> int:
             print(json.dumps(render_validate_report_output(result), ensure_ascii=False, separators=(",", ":")))
             return 0
         else:
-            result = validate_audio(read_input(args.text_file), args.min_words, args.max_words, args.wpm)
+            result = validate_audio(
+                read_input(args.text_file),
+                args.min_words,
+                args.max_words,
+                args.wpm,
+                run_dir=Path(args.run_dir) if args.run_dir else None,
+                skip_report_gate=args.skip_report_gate,
+            )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result["ok"] or args.no_fail else 1
     except Exception as exc:

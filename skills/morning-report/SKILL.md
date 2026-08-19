@@ -196,9 +196,13 @@ If audio is disabled, skip audio for the current topic and continue with the nex
 2. Validate:
 ```bash
 python3 ~/.hermes/skills/productivity/morning-report/scripts/validate.py \
-  --type audio --text-file "<run_dir from Step 2 output>/audio-script.txt"
+  --type audio --text-file "<run_dir from Step 2 output>/audio-script.txt" \
+  --run-dir "<run_dir from Step 2 output>"
 ```
 - `ok: true` → continue to MP3 generation.
+- `ok: false` with `report_not_validated` / `report_changed_after_validation` → Step 3 did
+  not finish, or the report was edited afterwards. Go back and re-run Step 3; do not
+  generate audio from a report that has not passed.
 - `ok: false` with `under_min_words` → expand the script; aim for ~780 words (middle of the 680-930 range). Re-validate.
 - `ok: false` with `over_max_words` → trim the script; cut redundant details, keep key facts. Re-validate.
 - Word-count balancing often takes 2-3 rounds — this is normal. If still failing after 3 attempts, use the closest passing revision and skip MP3.
