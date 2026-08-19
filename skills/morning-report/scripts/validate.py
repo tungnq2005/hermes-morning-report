@@ -38,6 +38,35 @@ STYLE_RULES = {
     "opportunities_risks": {"min_sections": 5, "min_bullets": 8, "min_words": 900, "max_words": 1200},
 }
 
+# The style guide asks for headings "in the report language", and the model still wrote
+# English ones over a Vietnamese report -- twice, in the same run directory. These are
+# the names it reaches for; seeing one while the report language is not English means
+# the headings were never translated.
+ENGLISH_SECTION_NAMES = {
+    "snapshot", "key updates", "watch next", "limitations", "sources", "highlights",
+    "what changed", "why it matters", "signals", "opportunities", "risks",
+    "next steps", "summary", "outlook", "takeaways", "key takeaways",
+}
+SECTION_LINE_RE = re.compile(r"^\s*#{2,3}\s+(.+?)\s*$", re.MULTILINE)
+
+# A percentage that names what it compares against, e.g.
+# "thấp hơn ~45% so với mức mở cửa tháng 1 (~$93K)" / "down 45% from (~$93K)".
+# The claim is checked against the first money figure in the same bullet -- the bullet's
+# subject. A deck that says $64.3K is 45% below $93K is out by 14 points.
+COMPARISON_PCT_RE = re.compile(
+    r"(?:thấp hơn|cao hơn|giảm|tăng|below|above|down|up|under|over)\s*[~≈]?\s*"
+    r"(\d{1,3}(?:[.,]\d+)?)\s*%(?P<tail>[^.]{0,90})",
+)
+# The reference figure has to be money, not any digit that happens to follow: an early
+# version read the "1" out of "mức mở cửa tháng 1" and reported a 6,429,900% error.
+MONEY_RE = re.compile(
+    r"\$\s*(\d[\d.,]*)\s*([KkMm]|nghìn|triệu|tỉ|tỷ)?"
+    r"|(\d[\d.,]*)\s*(nghìn|triệu|tỉ|tỷ)\s*(?:USD|đô|đồng)",
+)
+# How far a stated percentage may sit from the arithmetic before it is called wrong.
+PCT_TOLERANCE = 5.0
+MULTIPLIER = {"k": 1e3, "m": 1e6, "nghìn": 1e3, "triệu": 1e6, "tỉ": 1e9, "tỷ": 1e9}
+
 # ── Audio ──────────────────────────────────────────────────────────────
 DEFAULT_MIN_WORDS = 680
 DEFAULT_MAX_WORDS = 930
@@ -63,8 +92,82 @@ def count_words(text: str) -> int:
     return len(WORD_RE.findall(text))
 
 
+def _amount(number: str, unit: str | None) -> float | None:
+    """A money figure as a plain number. Vietnamese writes 1.234,5 where English writes
+    1,234.5, so the separator that appears last decides which is the decimal point."""
+    text = number.strip()
+    if "," in text and "." in text:
+        decimal = "," if text.rfind(",") > text.rfind(".") else "."
+        thousands = "." if decimal == "," else ","
+        text = text.replace(thousands, "").replace(decimal, ".")
+    elif "," in text:
+        # A lone comma is a decimal point only when it splits off 1-2 digits (30,5).
+        text = text.replace(",", "." if len(text.split(",")[-1]) <= 2 else "")
+    elif text.count(".") == 1 and len(text.split(".")[-1]) == 3:
+        text = text.replace(".", "")  # 30.000 is thirty thousand, not thirty
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value * MULTIPLIER.get((unit or "").lower(), 1.0)
+
+
+def _money(match: re.Match) -> float | None:
+    """MONEY_RE has a dollar branch and a `<number> triệu USD` branch; take whichever hit."""
+    number, unit = (match.group(1), match.group(2)) if match.group(1) else (match.group(3), match.group(4))
+    return _amount(number, unit) if number else None
+
+
+def check_percentages(text: str) -> list[dict[str, str]]:
+    """Catch a percentage that contradicts the figures printed beside it.
+
+    A real report said Bitcoin at $64.3K was "thấp hơn ~45%" than $93K; it is 31%. Both
+    numbers sat in the same bullet, so the claim can be checked without a model.
+    """
+    issues: list[dict[str, str]] = []
+    for line in text.splitlines():
+        if not line.lstrip().startswith(("-", "*", "+")):
+            continue
+        match = COMPARISON_PCT_RE.search(line)
+        if not match:
+            continue
+        reference_match = MONEY_RE.search(match.group("tail"))
+        subject = MONEY_RE.search(line)
+        if not reference_match or not subject:
+            continue
+        claimed = _amount(match.group(1), None)
+        reference = _money(reference_match)
+        value = _money(subject)
+        if not claimed or not reference or not value or reference == 0 or value == reference:
+            continue
+        actual = abs(value - reference) / reference * 100
+        if abs(actual - claimed) > PCT_TOLERANCE:
+            issues.append({
+                "code": "percentage_mismatch",
+                "message": (f"Bullet claims {claimed:g}% but the figures beside it give "
+                            f"{actual:.0f}%. Recheck or drop the percentage."),
+                "sample": line.strip()[:120],
+            })
+    return issues
+
+
+def check_heading_language(text: str, language: str | None) -> list[dict[str, str]]:
+    """Headings must be in the configured report language, per references/report-styles.md."""
+    if not language or language.strip().lower().startswith("en"):
+        return []
+    english = [h for h in SECTION_LINE_RE.findall(text)
+               if h.strip().lower() in ENGLISH_SECTION_NAMES]
+    if not english:
+        return []
+    return [{
+        "code": "heading_language",
+        "message": (f"Headings are in English but the report language is {language}: "
+                    f"{', '.join(english)}. Translate every heading."),
+    }]
+
+
 # ── Report validation ─────────────────────────────────────────────────
-def validate_report(text: str, style: str) -> dict[str, Any]:
+def validate_report(text: str, style: str, language: str | None = None) -> dict[str, Any]:
     clean = text.strip()
     rules = STYLE_RULES.get(style)
     issues: list[dict[str, str]] = []
@@ -104,6 +207,9 @@ def validate_report(text: str, style: str) -> dict[str, Any]:
         issues.append({"code": "missing_evidence_links", "message": "Report needs at least one Markdown evidence link."})
     if style in {"deep_analysis", "opportunities_risks"} and subsections == 0:
         issues.append({"code": "missing_subsections", "message": "This style needs subsection headings."})
+
+    issues += check_heading_language(clean, language)
+    issues += check_percentages(clean)
 
     return {
         "ok": not issues,
@@ -198,6 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Report args
     p.add_argument("--report-file", help="Report Markdown file, or '-' for stdin")
     p.add_argument("--style", choices=sorted(STYLE_RULES))
+    p.add_argument("--language", help="Configured report_language; headings must be written in it")
     # Audio args
     p.add_argument("--text-file", help="Audio script text file, or '-' for stdin")
     p.add_argument("--min-words", type=int, default=DEFAULT_MIN_WORDS)
@@ -214,7 +321,7 @@ def main() -> int:
     try:
         if args.type == "report":
             text = read_input(args.report_file)
-            result = validate_report(text, args.style)
+            result = validate_report(text, args.style, args.language)
             if args.run_dir:
                 if args.report_file == "-":
                     raise ValueError("--run-dir requires --report-file to be a file path")

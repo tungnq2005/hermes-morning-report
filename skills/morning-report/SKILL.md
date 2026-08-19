@@ -146,7 +146,7 @@ Use for manual, test, or cron report runs. Follow each step in order.
 
 **Single-topic cron runs:** each per-topic cron job is prompted to process only one topic. If the run is for a single topic, run Step 2 with `--topic "<that topic>"` once, then Step 3 and Step 4 for it; do not loop over all configured topics.
 
-**Final response content:** your final response is what gets delivered to Telegram. For each topic you process, your response MUST START with that topic's report title (the `# ` heading) and contain only: the `report.md` content verbatim (including the `### Sources` footer), then a line `MEDIA:<the audio MP3 output path from Step 4>` for its audio. Do NOT write any line before the title — no "All steps complete", no "Delivering the final report", no progress or announcement text, no summary.
+**Final response content:** your final response is what gets delivered to Telegram. For each topic you process, your response MUST START with that topic's report title (the `# ` heading) and contain only: the `report.md` content verbatim (including the sources footer, whose heading is in the report language), then a line `MEDIA:<the audio MP3 output path from Step 4>` for its audio. Do NOT write any line before the title — no "All steps complete", no "Delivering the final report", no progress or announcement text, no summary.
 
 ### Step 1: Check config
 
@@ -175,8 +175,13 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/validate.py \
   --type report \
   --report-file "<run_dir from Step 2 output>/report.md" \
   --style "<style>" \
+  --language "<report_language from config>" \
   --run-dir "<run_dir from Step 2 output>"
 ```
+
+`--language` is what catches English headings on a non-English report — use the exact
+`report_language` value from config. Heading names per language are in
+`references/report-styles.md`; do not invent your own.
 
 Read the JSON output and follow `next_action`.
 

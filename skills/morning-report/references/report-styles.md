@@ -1,6 +1,23 @@
 # Report Styles
 
-Use the configured report language from config. All headings, content, and date format must be in that language.
+Use the configured report language from config. All headings, content, and date format
+must be in that language.
+
+**Headings are the part that gets forgotten.** Asking for "a heading in the report
+language" produced `## Snapshot` / `## Key updates` over a Vietnamese report twice in a
+row, so the names are spelled out here. Use the row for the configured language:
+
+| Section | English | Vietnamese |
+| --- | --- | --- |
+| Title | `# Morning Brief — <topic> — <date>` | `# Bản tin sáng — <chủ đề> — <ngày>` |
+| The one thing that matters | `## Snapshot` | `## Điểm chính` |
+| What changed | `## Key updates` | `## Diễn biến đáng chú ý` |
+| What to watch | `## Watch next` | `## Cần theo dõi` |
+| Caveats | `## Limitations` | `## Giới hạn` |
+| Source list | `### Sources` | `### Nguồn` |
+
+For any other language, translate the same six names. `validate.py --language` rejects a
+report whose headings are still English while the configured language is not.
 
 Use exactly one canonical style: `concise`, `deep_analysis`, or `opportunities_risks`.
 
