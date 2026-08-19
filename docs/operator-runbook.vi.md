@@ -102,6 +102,7 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 ## Google Workspace (D2)
 
 - Credentials: `~/.hermes/skills/doc-convert/state/google-creds/` (symlink → repo) gồm `client_secret.json` + `token.json` (refresh token, quyền 600). `.gitignore='*'` nên không lọt repo.
+- Cài từ đầu (tạo project, bật API, **PUBLISH APP**, tạo client, authorize, kiểm tra, sự cố thường gặp): [google-oauth-setup.vi.md](google-oauth-setup.vi.md).
 - Authorize lại: `python3 ~/.hermes/skills/doc-convert/scripts/authorize_google.py --port 8765` (VPS headless: SSH tunnel `ssh -L 8765:localhost:8765 <user>@<vps>`).
 - Cần enable Google Cloud Console: **Drive API + Docs API + Slides API**. Consent Testing → tài khoản phải nằm trong Test users.
 - Kiểm tra: `python3 ~/.hermes/skills/doc-convert/scripts/preflight.py --compact` → `google.authorized_token: true`.

@@ -62,6 +62,7 @@ Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key
 ## Tài liệu
 
 - Người dùng cuối: [docs/user-guide.vi.md](docs/user-guide.vi.md) · [EN](docs/user-guide.en.md)
+- **Kết nối Google (bắt buộc cho D2)**: [docs/google-oauth-setup.vi.md](docs/google-oauth-setup.vi.md) · [EN](docs/google-oauth-setup.en.md)
 - Bảng lệnh nhanh: [docs/chat-commands.md](docs/chat-commands.md)
 - Vận hành/quản trị: [docs/operator-runbook.vi.md](docs/operator-runbook.vi.md) · [EN](docs/operator-runbook.en.md)
 - Bàn giao 30 phút: [docs/handover-session.md](docs/handover-session.md)

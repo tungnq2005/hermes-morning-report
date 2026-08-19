@@ -50,7 +50,7 @@ Bước `02_install_hermes.sh` chạy `hermes setup` (wizard tương tác — ch
 
 ## Tuỳ chọn sau khi cài
 - **Morning Report search**: skill dùng `exa` chính + `brave` dự phòng trong `collect_sources.py` (cần `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, `FIRECRAWL_API_KEY` trong `~/.hermes/.env`). `OC_SEARCH_PROVIDER=searxng` chỉ kích hoạt bước 05 (SearXNG cho platform `web` tool của Hermes) — không ảnh hưởng search của skill.
-- **Google Workspace OAuth** — **nên làm, không phải tuỳ chọn thực sự**: D2 dựng kết quả trên Google Slides/Docs rồi export file từ đó, nhờ vậy mở trên macOS/Windows/iPad đều giống nhau. Chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy:
+- **Google Workspace OAuth** — **nên làm, không phải tuỳ chọn thực sự**: D2 dựng kết quả trên Google Slides/Docs rồi export file từ đó, nhờ vậy mở trên macOS/Windows/iPad đều giống nhau. Hướng dẫn đầy đủ từng bước (kể cả bước **PUBLISH APP** mà bỏ qua là bot chết sau 7 ngày): [docs/google-oauth-setup.vi.md](../docs/google-oauth-setup.vi.md) · [EN](../docs/google-oauth-setup.en.md). Tóm tắt: chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy:
   ```bash
   python3 skills/doc-convert/scripts/authorize_google.py
   ```

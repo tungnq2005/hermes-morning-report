@@ -102,6 +102,7 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 ## Google Workspace (D2)
 
 - Credentials: `~/.hermes/skills/doc-convert/state/google-creds/` (symlink → repo) contains `client_secret.json` (OAuth desktop client) + `token.json` (refresh token, mode 600). The dir has `.gitignore='*'` so it never reaches a repo.
+- First-time setup (create the project, enable APIs, **PUBLISH APP**, create the client, authorize, verify, troubleshoot): [google-oauth-setup.en.md](google-oauth-setup.en.md).
 - Re-authorize (token broken / account change): `python3 ~/.hermes/skills/doc-convert/scripts/authorize_google.py --port 8765` (headless VPS: SSH-tunnel `ssh -L 8765:localhost:8765 <user>@<vps>`).
 - Must be enabled in Google Cloud Console: **Drive API + Docs API + Slides API**. If the consent screen is in Testing mode, the account must be a listed Test user.
 - Verify: `python3 ~/.hermes/skills/doc-convert/scripts/preflight.py --compact` → `google.authorized_token: true`.
