@@ -22,10 +22,10 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 4. Khách tự tạm dừng / bật lại: *"Tạm dừng morning report"* → bot xác nhận đã pause; rồi *"Bật lại morning report"* → bot xác nhận đã resume. Config giữ nguyên.
 
 ## Phút 10–20 — Document Conversion (để KHÁCH tự làm)
-1. Khách kéo–thả 1 file Word vào chat + *"Chuyển thành PowerPoint"* → nhận .pptx.
-2. Thử tiếp *"Xuất file này ra PDF"*.
+1. Khách kéo–thả 1 file Word vào chat + *"Chuyển thành PowerPoint"* → nhận **link Google Slides** kèm bản PDF. Mở link ngay trên máy khách (Mac/Windows đều được) để thấy layout giống hệt nhau.
+2. Thử tiếp *"Xuất file này ra PDF"*, và *"Gửi mình cả file .pptx"* (file này export từ chính bản Google).
 3. Thử *"Đọc tài liệu này thành audio"* → nhận MP3.
-4. Nhắc giới hạn: file Google phải công khai; PDF scan không được.
+4. Nhắc giới hạn: file Google phải công khai (hoặc nằm trong tài khoản đã kết nối); PDF scan không được; deck > 10MB thì chỉ có link, không kèm PDF.
 
 ## Phút 20–25 — Vận hành & sự cố / Ops & troubleshooting
 - Chỉ `chat-commands.md` (bảng lệnh 1 trang) — "cần gì cứ nhắn tự nhiên".
@@ -42,7 +42,8 @@ Goal (D3 AC): after this session, the client can **operate the basics themselves
 ## Checklist nghiệm thu D3 / D3 acceptance checklist
 - [ ] Gateway `active (running)`, tự lên sau reboot VPS (lingering=yes).
 - [ ] Morning report gửi được text + audio 3–5 phút; cron đặt đúng giờ gửi đã cấu hình (theo timezone của khách).
-- [ ] Doc-convert: docx↔pptx↔pdf + narrate chạy được qua chat.
+- [ ] Doc-convert: docx↔pptx↔pdf + narrate chạy được qua chat; kết quả trả về link Google Slides/Docs mở đúng trên máy khách (kể cả macOS).
+- [ ] `preflight.py --compact` → `google.authorized_token: true` (không có token thì kết quả bị render local, hiển thị lệch trên Mac).
 - [ ] `secrets audit --check` → clean (plaintext=0).
 - [ ] `healthcheck_hermes.sh` → `ok:true`.
 - [ ] Ổn định ≥48h: ≥2 lần gửi sáng thành công, log không lỗi lặp.

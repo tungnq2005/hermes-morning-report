@@ -105,7 +105,17 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 - Re-authorize (token broken / account change): `python3 ~/.hermes/skills/doc-convert/scripts/authorize_google.py --port 8765` (headless VPS: SSH-tunnel `ssh -L 8765:localhost:8765 <user>@<vps>`).
 - Must be enabled in Google Cloud Console: **Drive API + Docs API + Slides API**. If the consent screen is in Testing mode, the account must be a listed Test user.
 - Verify: `python3 ~/.hermes/skills/doc-convert/scripts/preflight.py --compact` → `google.authorized_token: true`.
-- Capabilities: read **private** Docs/Slides/Drive; create drafts directly in Google Docs (`--to gdoc`) / Slides (`--to gslides`).
+- **Two scope sets** (`DOC_CONVERT_GOOGLE_SCOPES`), because scopes decide how hard customer setup is:
+  - `minimal` — `drive.file` only. Covers the whole conversion pipeline (upload, export, Slides readback) because every file involved is one the app created. Non-sensitive scope: an OAuth client asking for nothing else publishes without verification, shows no "unverified app" screen, and its refresh tokens do not expire after 7 days. Customer setup = one consent click. Private Google links are refused with an actionable message.
+  - `private-links` (default) — adds `drive.readonly` so pasted private Docs/Slides/Drive links work. RESTRICTED scope: publishing needs app verification plus an annual CASA assessment, so in practice each customer creates their own OAuth client.
+  - The `documents` and `presentations` scopes were removed — the old Docs/Slides batchUpdate builders are gone and the readback works under `drive.file`.
+  - `preflight.py` reports `scope_set_requested`, `granted_scopes` and `can_read_private_links`; the stored token's grant wins over whatever the code asks for, so an existing deployment keeps working after a default change.
+- Capabilities: read **private** Docs/Slides/Drive (private-links only); render every conversion in Google.
+- **Google is the renderer of record.** `convert.py` builds a .pptx/.docx locally, imports it into Slides/Docs, and exports the file the user asked for back out of Google — a python-pptx deck renders differently in PowerPoint for Mac, a Google one does not. Files are created private in the connected account's Drive; the run dir keeps the uploaded intermediate under `build/`.
+- Targets: `gslides`/`gdoc` (link + exported PDF), `pptx`/`docx`/`pdf` (Google's export), `md` (local, never touches Google). `--no-google` forces local rendering for debugging.
+- Without a token the skill still converts, but adds a `google_unauthorized:rendered_locally` warning and `gslides`/`gdoc` fail — check preflight first when a user reports a file that "looks wrong on Mac".
+- Post-import check: `convert.py` reads the deck back through the Slides API (`google_check` in the manifest); re-run it with `validate_output.py --google <url>`.
+- Drive refuses exports above **10 MB**: a photo-heavy deck then arrives as a link with a `google_export_failed:` warning and no PDF.
 
 ## Known limitations
 

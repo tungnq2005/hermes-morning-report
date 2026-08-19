@@ -20,7 +20,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from google_io import DEFAULT_CREDS_DIR, SCOPES  # noqa: E402
+from google_io import DEFAULT_CREDS_DIR, SCOPES, scope_set_name  # noqa: E402
 
 
 def main() -> int:
@@ -35,6 +35,14 @@ def main() -> int:
     if not os.path.exists(client_secret):
         print(f"THIẾU {client_secret}. Đặt file OAuth client (Desktop) vào đây trước.", file=sys.stderr)
         return 1
+
+    print(f"Bộ quyền: {scope_set_name()}  ({len(SCOPES)} scope)", file=sys.stderr)
+    for scope in SCOPES:
+        print(f"  - {scope}", file=sys.stderr)
+    if scope_set_name() == "minimal":
+        print("  → chỉ thao tác với file do bot tạo; KHÔNG đọc được link Google riêng tư.",
+              file=sys.stderr)
+    print("Đổi bằng DOC_CONVERT_GOOGLE_SCOPES=minimal|private-links\n", file=sys.stderr)
 
     flow = InstalledAppFlow.from_client_secrets_file(client_secret, SCOPES)
     # open_browser=False: in ra URL để mở thủ công (hợp cả WSL lẫn VPS qua SSH tunnel).

@@ -36,19 +36,23 @@ Send the bot a **file** (drag-and-drop into chat) or a **public Google link**, w
 
 ### Supported formats
 - **Input**: Word (.docx), PowerPoint (.pptx), text-based PDF, Text/Markdown, Google Docs/Slides/Drive links (set to "Anyone with the link").
-- **Output**: PowerPoint, Word, PDF, Markdown, or MP3 audio.
+- **Output**: **Google Slides / Google Docs** (the default), plus PowerPoint, Word, PDF, Markdown, or MP3 audio.
 
 ### How to use
-- **Word → PowerPoint**: send a .docx with *"Convert this to PowerPoint"*
+- **Word → slides**: send a .docx with *"Convert this to PowerPoint"* → you get a **Google Slides link** plus a PDF copy
 - **→ PDF**: *"Export this as PDF"*
-- **PowerPoint → Word**: send a .pptx with *"Turn these slides into a Word document"*
-- **From a Google link**: paste the link with *"Convert this document to PowerPoint"* (reads **private** files in the connected Google account too)
-- **Create straight into Google**: *"Make this a Google Doc"* / *"...a Google Slides"* → the bot returns a **Google link** you can open and edit directly.
+- **PowerPoint → document**: send a .pptx with *"Turn these slides into a Word document"*
+- **From a Google link**: paste the link with *"Convert this document to slides"* (reads **private** files in the connected Google account too)
+- **Still want an Office file?** Ask for it: *"Send me the .pptx file too"*
 - **Narrate as audio**: send a file with *"Read this document as audio"*
 
-The bot returns the result as an attachment right in the chat (or a Google link for cloud creation). Turnaround is usually **5–10 minutes** depending on length.
+The bot returns a Google link and, alongside it, a PDF attachment in the chat. Turnaround is usually **5–10 minutes** depending on length.
+
+### Why Google Slides / Google Docs?
+A PowerPoint file generated on the server does not always draw the same way in PowerPoint for Mac — fonts, spacing and layout shift. Google renders the deck once, so it looks identical on macOS, Windows, iPad and in the browser, and any .pptx/.docx/.pdf you ask for is exported from that same Google file.
 
 ### Notes
+- Files created for you live in **your own Google Drive and stay private** — nobody else can open the link. Share it yourself if you want to.
 - Private Google files **are now readable** through the connected account. Files others shared with that account work too, if it has access.
 - Scanned image-only PDFs (no text) are not supported.
 - Video editing/generation is **out of scope** (a separate future feature).

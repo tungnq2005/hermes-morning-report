@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """Convert documents/presentations between formats.
 
+Google Workspace is the renderer of record. The .pptx/.docx this skill builds is an
+intermediate: it is imported into Google Slides / Google Docs, and whatever file the
+user wants is exported back out of Google. python-pptx and LibreOffice each draw a
+document their own way -- that is why a deck that looked right on Linux came out wrong
+in PowerPoint for Mac -- whereas a Google file renders identically on macOS, Windows,
+iPad and the browser, and its exports carry Google's rendering with them.
+
+Without an authorized Google token the local file is delivered instead, flagged with a
+`google_unauthorized:rendered_locally` warning; `gslides`/`gdoc` then fail outright.
+
 Usage:
-  python3 convert.py --input <path-or-url> --to pptx|docx|pdf|md \
-      [--title "..."] [--subtitle "..."] [--image <path>]... [--min-slides 5] [--outdir DIR]
+  python3 convert.py --input <path-or-url> --to gslides|gdoc|pptx|docx|pdf|md \
+      [--title "..."] [--subtitle "..."] [--image <path>]... [--min-slides 5] \
+      [--no-google] [--outdir DIR]
 
 Prints a JSON manifest to stdout. Outputs default to
 skills/doc-convert/state/output-history/YYYY-MM-DD/<run-id>/.
@@ -30,7 +41,8 @@ except Exception:  # google libs optional; targets that need them fail with a cl
     google_io = None
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# file targets + "direct to cloud" targets (gdoc/gslides create drafts in Google Workspace)
+# gslides/gdoc deliver a Google link (plus a PDF copy); pptx/docx/pdf deliver a file
+# that Google exported, so every target but `md` goes through Google when authorized.
 TARGETS = ("pptx", "docx", "pdf", "md", "gdoc", "gslides")
 
 # python-docx's default template leaves body text on the theme's minor font, which is
@@ -175,6 +187,74 @@ def to_pdf(src_path: str, run_dir: str) -> str:
     return expected
 
 
+def local_artifact(args, doc: dict, sections: list[dict], src: str, src_ext: str,
+                   run_dir: str, build_dir: str, base: str, manifest: dict, want: str) -> str:
+    """Build (or reuse) the local .pptx/.docx that Google will import.
+
+    An input that is already in the wanted shape is handed to Google untouched: the
+    user asking to put *their* deck on Google Slides wants that deck, not our
+    regenerated one. `--rebuild` is for when they want ours (re-laid out, with imagery).
+    """
+    if src_ext == "." + want and not args.rebuild:
+        return src
+    os.makedirs(build_dir, exist_ok=True)
+    out_path = os.path.join(build_dir, base + "." + want)
+    if want == "pptx":
+        import build_pptx
+
+        images, credits = resolve_images(args, doc, sections, run_dir, manifest, build_pptx)
+        stats = build_pptx.build(doc, sections, out_path, min_slides=args.min_slides,
+                                 images=images, subtitle=args.subtitle, credits=credits)
+        for name in stats.pop("images_rejected", []):
+            manifest["warnings"].append(f"image_embed_failed:{name}")
+        manifest.update(stats)
+    else:
+        build_docx(doc, out_path)
+    return out_path
+
+
+def local_fallback(local_path: str, run_dir: str, target: str) -> str | None:
+    """What ships when Google cannot: our own file, or LibreOffice's PDF.
+
+    For `gslides`/`gdoc` there is nothing to ship -- the link is the deliverable and
+    the PDF was only the offline copy -- so this returns None and the caller's warning
+    stands on its own.
+    """
+    if target == "pdf":
+        return to_pdf(local_path, run_dir)
+    if target in ("pptx", "docx"):
+        dest = os.path.join(run_dir, os.path.basename(local_path))
+        if os.path.abspath(local_path) != os.path.abspath(dest):
+            shutil.copy2(local_path, dest)
+        return dest
+    return None
+
+
+def finish(manifest: dict, run_dir: str) -> int:
+    with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, ensure_ascii=False, indent=2)
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    return 0 if manifest.get("success") else 1
+
+
+def check_google_deck(pres_id: str) -> dict:
+    """Read the imported deck back out of Google and re-run the layout invariants.
+
+    Drive's importer re-maps placeholders and re-wraps text with its own font
+    substitute, so a clean local .pptx is no evidence about the deck Google serves.
+    Returns status pass/fail/unchecked -- `unchecked` is not a pass.
+    """
+    try:
+        import validate_output
+
+        data = google_io.inspect_presentation(pres_id)
+        problems = validate_output.check_google_slides(data, validate_output._font_path())
+        return {"status": "fail" if problems else "pass",
+                "slides": len(data.get("slides") or []), "problems": problems}
+    except Exception as err:  # noqa: BLE001 - a failed probe must not lose the deck
+        return {"status": "unchecked", "error": f"{type(err).__name__}: {err}"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Convert documents between formats")
     ap.add_argument("--input", required=True, help="Local file path or public URL / Google link")
@@ -188,6 +268,13 @@ def main() -> int:
     ap.add_argument("--no-auto-images", action="store_true",
                     help="Never search Openverse; leave slides without pictures.")
     ap.add_argument("--min-slides", type=int, default=5)
+    ap.add_argument("--rebuild", action="store_true",
+                    help="Re-lay out an input that is already in the target shape "
+                         "(a .pptx asked for as slides is otherwise uploaded as-is).")
+    ap.add_argument("--no-google", action="store_true",
+                    help="Render locally even when Google is authorized (offline/debug). "
+                         "The resulting file is python-pptx/LibreOffice output, which is "
+                         "what renders inconsistently in PowerPoint for Mac.")
     ap.add_argument("--outdir", default=None)
     args = ap.parse_args()
 
@@ -199,7 +286,11 @@ def main() -> int:
         src = args.input
         if doc_io.is_url(src):
             # Private Google file: use authorized API if a token exists; else public download.
-            if google_io and google_io.is_google_url(src) and google_io.has_token():
+            # Only take the authorized route when the token can actually read files the
+            # bot did not create; a minimal-scope deployment falls back to the public
+            # download, which still works for a shared link.
+            if (google_io and google_io.is_google_url(src) and google_io.has_token()
+                    and google_io.can_read_private_files()):
                 src = google_io.download_private(src, os.path.join(run_dir, "input"))
                 manifest["downloaded_to"] = src
                 manifest["source_access"] = "google-authorized"
@@ -221,69 +312,89 @@ def main() -> int:
             manifest["warnings"].append("input and target formats are the same")
 
         base = os.path.splitext(os.path.basename(src))[0]
+        build_dir = os.path.join(run_dir, "build")
 
-        # Fast path: office file -> pdf keeps original layout via LibreOffice.
-        if args.to == "pdf" and src_ext in (".docx", ".pptx"):
-            out_path = to_pdf(src, run_dir)
-            manifest.update({"success": True, "output": out_path})
-            print(json.dumps(manifest, ensure_ascii=False, indent=2))
-            return 0
+        google_ok = bool(google_io) and google_io.has_token() and not args.no_google
+        manifest["google_available"] = google_ok
 
-        doc = doc_io.extract(src)
-        if args.title:
-            doc["title"] = args.title
-        sections = doc_io.outline_sections(doc)
-        manifest["sections"] = len(sections)
-
-        if args.to in ("gdoc", "gslides"):
-            # "Direct to cloud": create a draft in Google Workspace, return its URL.
-            if not google_io:
-                raise DocConvertError("Thiếu Google API libs. Cài: pip3 install google-api-python-client google-auth-oauthlib")
-            if not google_io.has_token():
-                raise DocConvertError(
-                    "Chưa authorize Google. Chạy 1 lần: python3 skills/doc-convert/scripts/authorize_google.py")
-            if args.to == "gdoc":
-                res = google_io.create_google_doc(doc["title"], doc)
-            else:
-                res = google_io.create_google_slides(doc["title"], sections)
-            manifest.update({"success": True, "google_url": res["url"], "google_id": res["id"],
-                             "title": doc["title"]})
-            manifest.update({k: v for k, v in res.items() if k == "slides"})
-            with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8") as fh:
-                json.dump(manifest, fh, ensure_ascii=False, indent=2)
-            print(json.dumps(manifest, ensure_ascii=False, indent=2))
-            return 0
-        elif args.to == "md":
+        # Markdown never goes near Google: it is plain text, identical everywhere.
+        if args.to == "md":
+            doc = doc_io.extract(src)
+            if args.title:
+                doc["title"] = args.title
             out_path = os.path.join(run_dir, base + ".md")
             with open(out_path, "w", encoding="utf-8") as fh:
                 fh.write(doc_io.to_markdown(doc))
-        elif args.to == "docx":
-            out_path = os.path.join(run_dir, base + ".docx")
-            build_docx(doc, out_path)
-        elif args.to == "pptx":
-            import build_pptx
-            out_path = os.path.join(run_dir, base + ".pptx")
-            images, credits = resolve_images(args, doc, sections, run_dir, manifest, build_pptx)
-            stats = build_pptx.build(doc, sections, out_path, min_slides=args.min_slides,
-                                     images=images, subtitle=args.subtitle, credits=credits)
-            for name in stats.pop("images_rejected", []):
-                manifest["warnings"].append(f"image_embed_failed:{name}")
-            manifest.update(stats)
-        else:  # pdf from text-ish input: build docx first, then convert
-            tmp_docx = os.path.join(run_dir, base + ".docx")
-            build_docx(doc, tmp_docx)
-            out_path = to_pdf(tmp_docx, run_dir)
+            manifest.update({"success": True, "output": out_path, "title": doc["title"],
+                             "render_engine": "local"})
+            return finish(manifest, run_dir)
 
-        manifest.update({"success": True, "output": out_path, "title": doc["title"]})
+        if args.to in ("gslides", "gdoc") and not google_ok:
+            if not google_io:
+                raise DocConvertError("Thiếu Google API libs. Cài: pip3 install google-api-python-client google-auth-oauthlib")
+            if args.no_google:
+                raise DocConvertError("--no-google loại trừ chính target đang yêu cầu (gslides/gdoc).")
+            raise DocConvertError(
+                "Chưa authorize Google. Chạy 1 lần: python3 skills/doc-convert/scripts/authorize_google.py")
+
+        # Which Office shape Google has to import: a deck for slide targets, a document
+        # for the rest. `pdf` follows the input so a deck stays a deck.
+        want = "pptx" if args.to in ("pptx", "gslides") else "docx"
+        if args.to == "pdf" and src_ext == ".pptx":
+            want = "pptx"
+
+        # An office file that only needs a PDF keeps its own layout: never re-extract it.
+        passthrough = args.to == "pdf" and src_ext in (".docx", ".pptx")
+        if passthrough:
+            local_path, doc = src, {"title": args.title or base}
+        else:
+            doc = doc_io.extract(src)
+            if args.title:
+                doc["title"] = args.title
+            sections = doc_io.outline_sections(doc)
+            manifest["sections"] = len(sections)
+            local_path = local_artifact(args, doc, sections, src, src_ext, run_dir, build_dir,
+                                        base, manifest, want)
+        manifest["local_build"] = local_path
+
+        if google_ok:
+            # Google renders the deliverable. python-pptx/LibreOffice output is only ever
+            # an intermediate now: that output is what rendered wrong in PowerPoint for
+            # Mac, and a Google-exported file carries Google's own rendering instead.
+            kind = "gslides" if want == "pptx" else "gdoc"
+            imported = google_io.import_local(local_path, kind, title=doc.get("title", base))
+            manifest.update({"google_url": imported["url"], "google_id": imported["id"],
+                             "google_kind": kind, "render_engine": "google"})
+            if kind == "gslides":
+                manifest["google_check"] = check_google_deck(imported["id"])
+                slides = manifest["google_check"].get("slides")
+                if slides:
+                    manifest["slides"] = slides
+
+            # gslides/gdoc are delivered as a link; the PDF rides along as the offline copy.
+            fmt = "pdf" if args.to in ("gslides", "gdoc", "pdf") else args.to
+            dest = os.path.join(run_dir, base + google_io.EXPORT_MIMES[fmt][1])
+            try:
+                out_path = google_io.export_to(imported["id"], fmt, dest)
+            except google_io.GoogleExportError as err:
+                manifest["warnings"].append(f"google_export_failed:{err}")
+                out_path = local_fallback(local_path, run_dir, args.to)
+        else:
+            manifest["warnings"].append(
+                "google_disabled:rendered_locally" if args.no_google
+                else "google_unauthorized:rendered_locally")
+            manifest["render_engine"] = "local"
+            out_path = local_fallback(local_path, run_dir, args.to)
+
+        manifest.update({"success": True, "title": doc.get("title", base)})
+        if out_path:
+            manifest["output"] = out_path
     except DocConvertError as err:
         manifest["error"] = str(err)
     except Exception as err:  # unexpected - keep JSON contract for the agent
         manifest["error"] = f"{type(err).__name__}: {err}"
 
-    with open(os.path.join(manifest.get("run_dir", "."), "manifest.json"), "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, ensure_ascii=False, indent=2)
-    print(json.dumps(manifest, ensure_ascii=False, indent=2))
-    return 0 if manifest["success"] else 1
+    return finish(manifest, manifest.get("run_dir", "."))
 
 
 if __name__ == "__main__":

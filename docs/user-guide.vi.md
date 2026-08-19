@@ -36,19 +36,23 @@ Gửi cho bot một **file** (kéo–thả vào chat) hoặc một **link Google
 
 ### Các định dạng hỗ trợ
 - **Đầu vào**: Word (.docx), PowerPoint (.pptx), PDF (dạng chữ), Text/Markdown, link Google Docs/Slides/Drive (đặt chế độ "Bất kỳ ai có link").
-- **Đầu ra**: PowerPoint, Word, PDF, Markdown, hoặc audio MP3.
+- **Đầu ra**: **Google Slides / Google Docs** (mặc định), kèm PowerPoint, Word, PDF, Markdown, hoặc audio MP3.
 
 ### Cách dùng
-- **Word → PowerPoint**: gửi file .docx kèm *"Chuyển file này thành PowerPoint"*
+- **Word → slide**: gửi file .docx kèm *"Chuyển file này thành PowerPoint"* → nhận **link Google Slides** kèm bản PDF
 - **→ PDF**: *"Xuất file này ra PDF"*
-- **PowerPoint → Word**: gửi .pptx kèm *"Chuyển slide này thành tài liệu Word"*
-- **Từ link Google**: dán link kèm *"Chuyển tài liệu này thành PowerPoint"* (đọc được cả file **riêng tư** trong tài khoản Google đã kết nối)
-- **Tạo thẳng lên Google**: *"Tạo file này thành Google Docs"* / *"...thành Google Slides"* → bot trả về **link Google** mở sửa trực tiếp.
+- **PowerPoint → tài liệu**: gửi .pptx kèm *"Chuyển slide này thành tài liệu Word"*
+- **Từ link Google**: dán link kèm *"Chuyển tài liệu này thành slide"* (đọc được cả file **riêng tư** trong tài khoản Google đã kết nối)
+- **Vẫn muốn file Office?** Nhắn thêm: *"Gửi mình cả file .pptx"*
 - **Tường thuật thành audio**: gửi file kèm *"Đọc tài liệu này thành audio"*
 
-Bot trả về file kết quả đính kèm ngay trong chat (hoặc link Google nếu tạo trên cloud). Thời gian xử lý thường **5–10 phút** tùy độ dài.
+Bot trả về link Google kèm file PDF đính kèm ngay trong chat. Thời gian xử lý thường **5–10 phút** tùy độ dài.
+
+### Vì sao dùng Google Slides / Google Docs?
+File PowerPoint tạo trên server không phải lúc nào cũng hiển thị giống nhau khi mở bằng PowerPoint trên máy Mac — font, khoảng cách và bố cục bị lệch. Google dựng bản trình bày một lần, nên nội dung hiển thị y hệt trên macOS, Windows, iPad và trình duyệt; mọi file .pptx/.docx/.pdf bạn cần đều được xuất ra từ chính file Google đó.
 
 ### Lưu ý
+- File bot tạo nằm trong **Google Drive của chính bạn và ở chế độ riêng tư** — người khác không mở được link. Muốn chia sẻ thì bạn tự chia sẻ.
 - File Google riêng tư **đã đọc được** qua tài khoản đã kết nối. File của người khác chia sẻ cho bạn cũng đọc được nếu tài khoản đó có quyền.
 - PDF dạng ảnh scan (không có chữ) không xử lý được.
 - Chỉnh sửa/tạo video: **ngoài phạm vi** (sẽ là tính năng riêng sau này).

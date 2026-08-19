@@ -105,7 +105,17 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 - Authorize lại: `python3 ~/.hermes/skills/doc-convert/scripts/authorize_google.py --port 8765` (VPS headless: SSH tunnel `ssh -L 8765:localhost:8765 <user>@<vps>`).
 - Cần enable Google Cloud Console: **Drive API + Docs API + Slides API**. Consent Testing → tài khoản phải nằm trong Test users.
 - Kiểm tra: `python3 ~/.hermes/skills/doc-convert/scripts/preflight.py --compact` → `google.authorized_token: true`.
-- Khả năng: đọc Docs/Slides/Drive riêng tư; tạo draft Google Docs (`--to gdoc`) / Slides (`--to gslides`).
+- **Hai bộ quyền** (`DOC_CONVERT_GOOGLE_SCOPES`) — scope quyết định khách setup dễ hay khó:
+  - `minimal` — chỉ `drive.file`. Đủ cho toàn bộ pipeline (upload, export, đọc lại deck) vì mọi file đều do app tạo. Đây là scope **không nhạy cảm**: OAuth client chỉ xin chừng này thì publish không cần verification, không hiện màn hình "unverified app", và refresh token **không chết sau 7 ngày**. Khách setup = 1 cú bấm đồng ý. Đổi lại: link Google riêng tư bị từ chối kèm hướng dẫn tải file lên.
+  - `private-links` (mặc định) — thêm `drive.readonly` để đọc link Docs/Slides/Drive riêng tư. Scope **RESTRICTED**: muốn publish phải qua verification + đánh giá CASA hằng năm, nên thực tế mỗi khách phải tự tạo OAuth client riêng.
+  - Đã bỏ `documents` và `presentations` — code không còn dựng nội dung qua batchUpdate, phần đọc lại deck chạy được dưới `drive.file`.
+  - `preflight.py` báo `scope_set_requested`, `granted_scopes`, `can_read_private_links`. Quyền ghi trong token thắng cấu hình trong code, nên bản đang chạy không gãy khi đổi mặc định.
+- Khả năng: đọc Docs/Slides/Drive riêng tư (chỉ với `private-links`); mọi conversion đều được dựng trên Google.
+- **Google là renderer chính thức.** `convert.py` dựng .pptx/.docx ở local, import vào Slides/Docs, rồi export ra đúng định dạng người dùng cần — deck do python-pptx tạo hiển thị lệch trong PowerPoint trên Mac, bản Google thì không. File tạo ra nằm ở chế độ riêng tư trong Drive của tài khoản đã kết nối; bản trung gian đã upload nằm trong `build/` của run dir.
+- Target: `gslides`/`gdoc` (link + PDF export), `pptx`/`docx`/`pdf` (bản export của Google), `md` (local, không qua Google). `--no-google` ép render local để debug.
+- Không có token thì vẫn convert được nhưng manifest thêm cảnh báo `google_unauthorized:rendered_locally` và `gslides`/`gdoc` fail — user báo file "hiển thị sai trên Mac" thì kiểm tra preflight trước.
+- Kiểm tra sau import: `convert.py` đọc lại deck qua Slides API (`google_check` trong manifest); chạy lại bằng `validate_output.py --google <url>`.
+- Drive từ chối export file trên **10 MB**: deck nhiều ảnh sẽ chỉ có link kèm cảnh báo `google_export_failed:`, không có PDF.
 
 ## Known limitations
 

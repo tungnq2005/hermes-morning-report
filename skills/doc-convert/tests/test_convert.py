@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import base64
+import contextlib
+import io
 import json
 import os
 import re
@@ -18,8 +20,10 @@ sys.path.insert(0, SCRIPTS)
 
 import doc_io  # noqa: E402
 import build_pptx  # noqa: E402
+import convert  # noqa: E402
 import google_io  # noqa: E402
 import image_search  # noqa: E402
+import validate_output  # noqa: E402
 
 # A 1x1 PNG. Enough for python-pptx to embed without pulling in Pillow fixtures.
 TINY_PNG = base64.b64decode(
@@ -28,9 +32,25 @@ TINY_PNG = base64.b64decode(
 )
 
 
-def offline_env() -> dict:
+# An empty directory that never gets credentials: pointing the skill at it keeps every
+# subprocess test off Google, whatever the machine running the suite has authorized.
+# One stable path rather than a fresh mkdtemp per run, so the suite leaves nothing behind.
+NO_CREDS_DIR = os.path.join(tempfile.gettempdir(), "docconv-tests-no-google-creds")
+os.makedirs(NO_CREDS_DIR, exist_ok=True)
+
+
+def offline_env(*, search: bool = False) -> dict:
+    """Environment for a hermetic convert.py run: no Drive, no image search.
+
+    Google is the skill's renderer of record, so a test that forgot this would upload
+    to the operator's real Drive on the VPS.
+    """
     env = os.environ.copy()
-    env[image_search.DISABLE_ENV] = "1"
+    env["DOC_CONVERT_GCREDS_DIR"] = NO_CREDS_DIR
+    if search:
+        env.pop(image_search.DISABLE_ENV, None)
+    else:
+        env[image_search.DISABLE_ENV] = "1"
     return env
 
 
@@ -249,12 +269,11 @@ class BuildTests(unittest.TestCase):
         src = os.path.join(self.tmp, "sample.docx")
         make_sample_docx(src)  # Vietnamese
         outdir = os.path.join(self.tmp, "run-vi")
-        env = os.environ.copy()
-        env.pop(image_search.DISABLE_ENV, None)  # search is *allowed*; it must decline anyway
+        # search is *allowed*; it must decline anyway
         proc = subprocess.run(
             [sys.executable, os.path.join(SCRIPTS, "convert.py"),
              "--input", src, "--to", "pptx", "--outdir", outdir],
-            capture_output=True, text=True, env=env)
+            capture_output=True, text=True, env=offline_env(search=True))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         manifest = json.loads(proc.stdout)
         self.assertEqual(manifest["images_used"], 0)
@@ -269,11 +288,12 @@ class BuildTests(unittest.TestCase):
             [sys.executable, os.path.join(SCRIPTS, "convert.py"),
              "--input", src, "--to", "pptx", "--outdir", outdir,
              "--image-query", "artificial intelligence", "--no-auto-images"],
-            capture_output=True, text=True, env=os.environ.copy())
+            capture_output=True, text=True, env=offline_env(search=True))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         manifest = json.loads(proc.stdout)
         self.assertEqual(manifest["images_used"], 0)
-        self.assertEqual(manifest["warnings"], [])
+        # The only warning left is the one about rendering locally instead of in Google.
+        self.assertEqual(manifest["warnings"], ["google_unauthorized:rendered_locally"])
 
     def test_pptx_keeps_image_slots_aligned_when_one_fetch_fails(self):
         """A missing picture must leave *its own* slide bare, not shift the next one."""
@@ -488,11 +508,12 @@ class BuildTests(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, os.path.join(SCRIPTS, "convert.py"),
              "--input", src, "--to", "docx", "--outdir", outdir],
-            capture_output=True, text=True)
+            capture_output=True, text=True, env=offline_env())
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         manifest = json.loads(proc.stdout)
         self.assertTrue(manifest["success"])
         self.assertTrue(manifest["output"].endswith(".docx"))
+        self.assertEqual(manifest["render_engine"], "local")
 
     @unittest.skipUnless(shutil.which("soffice"), "LibreOffice not installed")
     def test_convert_cli_docx_to_pdf(self):
@@ -502,7 +523,7 @@ class BuildTests(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, os.path.join(SCRIPTS, "convert.py"),
              "--input", src, "--to", "pdf", "--outdir", outdir],
-            capture_output=True, text=True, timeout=300)
+            capture_output=True, text=True, timeout=300, env=offline_env())
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         manifest = json.loads(proc.stdout)
         self.assertTrue(manifest["success"])
@@ -731,6 +752,70 @@ class ValidateOutputTests(unittest.TestCase):
 
         self.assertIn("overflow", self.checks_for(self.run_validator(out)))
 
+    def test_contrast_ratio_matches_the_wcag_reference_values(self):
+        self.assertAlmostEqual(validate_output.contrast_ratio((0, 0, 0), (255, 255, 255)), 21.0, 2)
+        self.assertAlmostEqual(validate_output.contrast_ratio((255, 255, 255), (255, 255, 255)), 1.0, 2)
+
+    def test_every_run_stays_readable_even_over_the_brightest_photo(self):
+        """A white picture under a divider's scrim is the worst case for white text;
+        the deck must still clear WCAG AA there, not just on the flat slides."""
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        sections = doc_io.outline_sections(doc)
+        photo = write_tiny_png(os.path.join(self.tmp, "photo.png"))
+        out = os.path.join(self.tmp, "contrast.pptx")
+        build_pptx.build(doc, sections, out, images=[photo] * len(sections), subtitle="phụ đề")
+
+        problems = [p for p in validate_output.check_pptx(out, None) if p["check"] == "contrast"]
+        self.assertEqual(problems, [])
+
+    def test_flags_text_that_disappears_into_its_background(self):
+        from pptx import Presentation
+        from pptx.dml.color import RGBColor
+        from pptx.util import Inches, Pt
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0x33, 0x33, 0x33)
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1))
+        para = box.text_frame.paragraphs[0]
+        run = para.add_run()
+        run.text = "chữ xám trên nền xám"
+        run.font.size = Pt(14)
+        run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+        out = os.path.join(self.tmp, "bad-contrast.pptx")
+        prs.save(out)
+
+        problems = [p for p in validate_output.check_pptx(out, None) if p["check"] == "contrast"]
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("needs 4.5", problems[0]["detail"])
+
+    def test_flags_a_run_that_leans_on_an_inherited_colour_over_a_dark_slide(self):
+        """PowerPoint resolves a bare run against the paragraph default, so a white
+        title looked right locally. Google Slides repaints it from its own layout, and
+        the deck came back with black titles on the navy dividers."""
+        from pptx import Presentation
+        from pptx.dml.color import RGBColor
+        from pptx.util import Inches, Pt
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = RGBColor(0x0F, 0x2A, 0x4A)
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1))
+        para = box.text_frame.paragraphs[0]
+        para.font.size = Pt(28)
+        para.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)  # paragraph default only
+        para.text = "tiêu đề trắng theo kiểu cũ"
+        out = os.path.join(self.tmp, "inherited-colour.pptx")
+        prs.save(out)
+
+        problems = [p for p in validate_output.check_pptx(out, None) if p["check"] == "contrast"]
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("no explicit run colour", problems[0]["detail"])
+
     def test_flags_a_word_file_with_no_body_text(self):
         import convert
 
@@ -799,6 +884,34 @@ class GoogleTests(unittest.TestCase):
         self.assertEqual(google_io.extract_file_id(
             "https://drive.google.com/file/d/DRV789/view"), "DRV789")
 
+    def test_scope_sets_stay_as_small_as_the_features_need(self):
+        """Every restricted scope costs the customer a verification review, so the set
+        must not carry scopes the code stopped calling."""
+        self.assertEqual(google_io.SCOPE_SETS["minimal"], [google_io.SCOPE_DRIVE_FILE])
+        self.assertNotIn("https://www.googleapis.com/auth/documents",
+                         google_io.SCOPE_SETS["private-links"])
+        self.assertNotIn("https://www.googleapis.com/auth/presentations",
+                         google_io.SCOPE_SETS["private-links"])
+
+    def test_scope_set_comes_from_the_environment_and_falls_back_safely(self):
+        for value, expected in (("minimal", "minimal"), ("private-links", "private-links"),
+                                ("nonsense", google_io.DEFAULT_SCOPE_SET)):
+            os.environ["DOC_CONVERT_GOOGLE_SCOPES"] = value
+            self.addCleanup(os.environ.pop, "DOC_CONVERT_GOOGLE_SCOPES", None)
+            self.assertEqual(google_io.scope_set_name(), expected)
+
+    def test_private_link_is_refused_with_an_actionable_message_on_a_minimal_token(self):
+        tmp = tempfile.mkdtemp(prefix="gcreds-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        with open(os.path.join(tmp, "token.json"), "w", encoding="utf-8") as fh:
+            json.dump({"scopes": [google_io.SCOPE_DRIVE_FILE]}, fh)
+
+        self.assertFalse(google_io.can_read_private_files(tmp))
+        with self.assertRaises(google_io.GoogleAuthError) as caught:
+            google_io.download_private("https://docs.google.com/document/d/ABC123def/edit",
+                                       tmp, creds_dir=tmp)
+        self.assertIn("tải file lên", str(caught.exception))
+
     def test_has_token_false_in_empty_dir(self):
         tmp = tempfile.mkdtemp(prefix="gcreds-")
         self.addCleanup(shutil.rmtree, tmp, True)
@@ -826,6 +939,134 @@ class GoogleTests(unittest.TestCase):
         manifest = json.loads(proc.stdout)
         self.assertFalse(manifest["success"])
         self.assertIn("authorize", manifest["error"].lower())
+
+
+def fake_deck(slides: int = 3) -> dict:
+    """A geometrically clean deck as the Slides API would report it back."""
+    return {
+        "id": "PID",
+        "page": {"width_emu": 12192000, "height_emu": 6858000},
+        "slides": [
+            {"index": i, "images": 0,
+             "texts": [{"object_id": f"t{i}", "text": "Tiêu đề ngắn", "font_pt": 24.0,
+                        "left_emu": 640080, "top_emu": 365760,
+                        "width_emu": 10000000, "height_emu": 1000000}]}
+            for i in range(slides)
+        ],
+    }
+
+
+class GoogleRenderTests(unittest.TestCase):
+    """Google renders the deliverable, so the pipeline is tested with the two Drive
+    calls stubbed: no network, and no files created in anyone's real Drive."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="grender-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.uploaded: list[tuple] = []
+        self.exported: list[tuple] = []
+        for name in ("has_token", "import_local", "export_to", "inspect_presentation"):
+            self.addCleanup(setattr, google_io, name, getattr(google_io, name))
+        google_io.has_token = lambda *a, **k: True
+        google_io.import_local = self.fake_import
+        google_io.export_to = self.fake_export
+        google_io.inspect_presentation = lambda *a, **k: fake_deck()
+
+    def fake_import(self, path, kind, title="", creds_dir=None):
+        self.uploaded.append((path, kind, title))
+        url = ("https://docs.google.com/presentation/d/PID/edit" if kind == "gslides"
+               else "https://docs.google.com/document/d/DID/edit")
+        return {"id": "PID" if kind == "gslides" else "DID", "url": url,
+                "name": title, "kind": kind}
+
+    def fake_export(self, file_id, fmt, dest_path, creds_dir=None):
+        self.exported.append((file_id, fmt, dest_path))
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, "wb") as fh:
+            fh.write(b"GOOGLE-EXPORT")
+        return dest_path
+
+    def run_convert(self, *argv) -> dict:
+        buf = io.StringIO()
+        saved = sys.argv
+        sys.argv = ["convert.py", *argv]
+        try:
+            with contextlib.redirect_stdout(buf):
+                convert.main()
+        finally:
+            sys.argv = saved
+        return json.loads(buf.getvalue())
+
+    def test_gslides_uploads_the_built_deck_and_ships_a_pdf(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        manifest = self.run_convert("--input", src, "--to", "gslides", "--no-auto-images",
+                                    "--outdir", os.path.join(self.tmp, "run"))
+        self.assertTrue(manifest["success"], manifest)
+        path, kind, _title = self.uploaded[0]
+        self.assertEqual(kind, "gslides")
+        self.assertTrue(path.endswith(".pptx") and os.path.exists(path))
+        self.assertEqual(manifest["google_url"], "https://docs.google.com/presentation/d/PID/edit")
+        self.assertEqual(manifest["render_engine"], "google")
+        self.assertTrue(manifest["output"].endswith(".pdf"))
+        self.assertEqual(manifest["google_check"]["status"], "pass")
+
+    def test_office_target_ships_googles_export_not_our_own_render(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        manifest = self.run_convert("--input", src, "--to", "pptx", "--no-auto-images",
+                                    "--outdir", os.path.join(self.tmp, "run"))
+        self.assertEqual(manifest["render_engine"], "google")
+        self.assertTrue(manifest["output"].endswith(".pptx"))
+        with open(manifest["output"], "rb") as fh:
+            self.assertEqual(fh.read(), b"GOOGLE-EXPORT")
+        self.assertNotEqual(os.path.abspath(manifest["output"]),
+                            os.path.abspath(manifest["local_build"]))
+
+    def test_a_failed_export_still_delivers_the_link(self):
+        def boom(*a, **k):
+            raise google_io.GoogleExportError("Drive từ chối export pdf (giới hạn 10MB)")
+
+        google_io.export_to = boom
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        manifest = self.run_convert("--input", src, "--to", "gslides", "--no-auto-images",
+                                    "--outdir", os.path.join(self.tmp, "run"))
+        self.assertTrue(manifest["success"])
+        self.assertIn("google_url", manifest)
+        self.assertNotIn("output", manifest)
+        self.assertTrue(any(w.startswith("google_export_failed:") for w in manifest["warnings"]),
+                        manifest["warnings"])
+
+    def test_the_users_own_deck_is_uploaded_untouched_unless_rebuild_is_asked(self):
+        src = os.path.join(self.tmp, "deck.pptx")
+        make_sample_pptx(src)
+        self.run_convert("--input", src, "--to", "gslides", "--no-auto-images",
+                         "--outdir", os.path.join(self.tmp, "as-is"))
+        self.assertIn(f"input{os.sep}deck.pptx", self.uploaded[0][0])
+
+        self.run_convert("--input", src, "--to", "gslides", "--no-auto-images", "--rebuild",
+                         "--outdir", os.path.join(self.tmp, "rebuilt"))
+        self.assertIn(f"build{os.sep}deck.pptx", self.uploaded[1][0])
+
+
+class GoogleDeckCheckTests(unittest.TestCase):
+    """The readback is the only evidence about what Drive's importer produced."""
+
+    def test_accepts_a_clean_deck(self):
+        self.assertEqual(validate_output.check_google_slides(fake_deck(), None), [])
+
+    def test_flags_an_empty_slide_and_a_box_off_the_canvas(self):
+        data = fake_deck(2)
+        data["slides"][0]["texts"] = []          # import dropped the text
+        data["slides"][1]["texts"][0]["left_emu"] = 11000000  # box pushed off the page
+        checks = {p["check"] for p in validate_output.check_google_slides(data, None)}
+        self.assertEqual(checks, {"empty_slide", "bounds"})
+
+    def test_flags_a_presentation_that_arrived_empty(self):
+        data = fake_deck(0)
+        problems = validate_output.check_google_slides(data, None)
+        self.assertEqual([p["check"] for p in problems], ["slides"])
 
 
 if __name__ == "__main__":

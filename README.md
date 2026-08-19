@@ -3,17 +3,17 @@
 Hai trợ lý AI chạy qua **Telegram bot** (nền tảng **Hermes**, cài native trên VPS Ubuntu):
 
 1. **Morning Report** — mỗi sáng bot tự tổng hợp tin theo chủ đề bạn chọn và gửi **bản chữ + audio 3–5 phút**. Đổi chủ đề / giờ gửi / phong cách bằng cách nhắn bot.
-2. **Document Conversion** — gửi file (Word/PowerPoint/PDF/Markdown) hoặc link Google, bot **chuyển đổi hai chiều**, tạo draft thẳng vào **Google Docs/Slides**, hoặc **đọc thành audio**.
+2. **Document Conversion** — gửi file (Word/PowerPoint/PDF/Markdown) hoặc link Google, bot dựng kết quả **thẳng trên Google Slides/Docs** (kèm bản PDF), hoặc **đọc thành audio**. File Office (.pptx/.docx) nếu cần đều được **export ra từ chính file Google** nên mở trên Mac hay Windows đều giống nhau.
 
-> Two Telegram-based AI agents on Hermes: a daily **Morning Report** (text + audio brief) and a **Document Conversion** agent (Word/PPT/PDF/Markdown + Google Workspace + narration).
+> Two Telegram-based AI agents on Hermes: a daily **Morning Report** (text + audio brief) and a **Document Conversion** agent that delivers **Google Slides/Docs** (plus Google-exported .pptx/.docx/.pdf) and narration.
 
 ---
 
 ## Tính năng chính
 
 - 📰 Bản tin sáng tự động (cron), text + audio, đa chủ đề, đổi cấu hình qua chat
-- 📄 Chuyển đổi tài liệu: docx ↔ pptx ↔ pdf ↔ md, tạo slide có layout nhất quán
-- ☁️ Google Workspace: đọc Docs/Slides/Drive riêng tư, tạo draft trực tiếp trên cloud
+- 📄 Chuyển đổi tài liệu: docx ↔ pptx ↔ pdf ↔ md, slide có layout nhất quán (cover, section divider, thẻ số liệu, ảnh minh họa)
+- ☁️ Google Workspace là renderer chính: kết quả nằm trên Google Slides/Docs, hiển thị y hệt trên macOS/Windows/iPad; đọc được Docs/Slides/Drive riêng tư
 - 🔊 Text-to-speech (Google TTS) cho cả bản tin lẫn tài liệu
 - 🔒 Secrets tách khỏi code (`~/.hermes/.env`, quyền 600), không plaintext trong config.yaml
 - 🖥️ Chạy native trên VPS (systemd), gửi qua Telegram long-polling — **không cần public IP/webhook**

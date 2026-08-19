@@ -44,17 +44,17 @@ Bước `02_install_hermes.sh` chạy `hermes setup` (wizard tương tác — ch
 
 ## Sau khi cài
 1. Mở Telegram, chat `@your_bot`: *"Setup Morning Report cho tôi bằng skill morning report."* (hoặc chạy `python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --save --enable-cron`).
-2. Thử D2: gửi 1 file .docx + *"Chuyển thành PowerPoint"*.
+2. Thử D2: gửi 1 file .docx + *"Chuyển thành PowerPoint"* → nhận link Google Slides kèm PDF (cần đã authorize Google, xem mục bên dưới).
 3. Kiểm tra: `bash scripts/healthcheck_hermes.sh` → `"ok":true`.
 4. Bàn giao theo `docs/handover-session.md`.
 
 ## Tuỳ chọn sau khi cài
 - **Morning Report search**: skill dùng `exa` chính + `brave` dự phòng trong `collect_sources.py` (cần `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, `FIRECRAWL_API_KEY` trong `~/.hermes/.env`). `OC_SEARCH_PROVIDER=searxng` chỉ kích hoạt bước 05 (SearXNG cho platform `web` tool của Hermes) — không ảnh hưởng search của skill.
-- **Google Workspace OAuth** (đọc Google riêng tư + tạo draft Docs/Slides): chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy:
+- **Google Workspace OAuth** — **nên làm, không phải tuỳ chọn thực sự**: D2 dựng kết quả trên Google Slides/Docs rồi export file từ đó, nhờ vậy mở trên macOS/Windows/iPad đều giống nhau. Chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy:
   ```bash
   python3 skills/doc-convert/scripts/authorize_google.py
   ```
-  Bỏ qua thì D2 vẫn chạy với file upload + link Google công khai.
+  Bỏ qua thì D2 vẫn convert được nhưng render bằng python-pptx/LibreOffice (kèm cảnh báo `google_unauthorized:rendered_locally`), và file .pptx có thể hiển thị lệch trong PowerPoint trên Mac; `--to gslides/gdoc` sẽ báo lỗi.
 - **Ảnh cho slide**: D2 tự lấy ảnh CC từ Openverse, không cần API key. Muốn tắt: `--no-auto-images`.
 
 ## Kiểm chứng đã làm

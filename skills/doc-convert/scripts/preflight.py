@@ -98,7 +98,27 @@ def main() -> int:
         "client_secret": os.path.exists(os.path.join(creds_dir, "client_secret.json")),
         "authorized_token": os.path.exists(os.path.join(creds_dir, "token.json")),
     }
-    # Google is optional; do NOT add to problems (private-Google/direct-to-cloud just stay disabled).
+    # Which scope set the stored token carries decides whether private Google links work.
+    if g_libs:
+        try:
+            sys.path.insert(0, os.path.join(SKILL_DIR, "scripts"))
+            import google_io  # noqa: PLC0415
+
+            checks["google"]["scope_set_requested"] = google_io.scope_set_name()
+            checks["google"]["granted_scopes"] = google_io.granted_scopes()
+            checks["google"]["can_read_private_links"] = google_io.can_read_private_files()
+        except Exception as err:  # noqa: BLE001 - a probe must not fail preflight
+            checks["google"]["scope_error"] = str(err)
+    # Google is where documents are rendered now: conversions still run without it, but
+    # they fall back to python-pptx/LibreOffice output, which is what rendered wrong in
+    # PowerPoint for Mac. Missing auth is a warning, never a blocker.
+    if not (checks["google"]["libs_installed"] and checks["google"]["authorized_token"]):
+        warnings.append(
+            "Google not authorized - gslides/gdoc are unavailable and pptx/docx/pdf fall "
+            "back to local rendering, which can look different on macOS. Fix with: "
+            "pip3 install google-api-python-client google-auth-oauthlib && "
+            "python3 skills/doc-convert/scripts/authorize_google.py"
+        )
 
     result = {"success": len(problems) == 0, "environment_ok": len(problems) == 0,
               "problems": problems, "warnings": warnings, "checks": checks}

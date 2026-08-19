@@ -34,16 +34,16 @@ Attach a file or paste a public Google link, then add a request.
 
 | Action / Thao tác | Say something like / Nhắn đại loại |
 |---|---|
-| To PowerPoint / Sang PowerPoint | "Convert this to PowerPoint" · "Chuyển file này thành PowerPoint" |
-| To Word / Sang Word | "Turn these slides into a Word doc" · "Chuyển slide này thành Word" |
+| To slides / Sang slide | "Convert this to PowerPoint" · "Chuyển file này thành PowerPoint" → Google Slides + PDF |
+| To a document / Sang tài liệu | "Turn these slides into a Word doc" · "Chuyển slide này thành Word" → Google Docs + PDF |
 | To PDF / Sang PDF | "Export this as PDF" · "Xuất ra PDF" |
 | To Markdown | "Convert this to Markdown" · "Chuyển thành Markdown" |
-| Create in Google Docs / Tạo trên Google Docs | "Make this a Google Doc" · "Tạo file này thành Google Docs" |
-| Create in Google Slides / Tạo trên Google Slides | "Make this a Google Slides" · "Tạo thành Google Slides" |
+| Office file too / Kèm file Office | "Send me the .pptx file too" · "Gửi mình cả file .pptx" |
 | Narrate audio / Đọc thành audio | "Read this document as audio" · "Đọc tài liệu này thành audio" |
 
 **Input / Đầu vào**: .docx, .pptx, text-PDF, .txt, .md, Google Docs/Slides/Drive links (public **or private** in the connected account / công khai **hoặc riêng tư** trong tài khoản đã kết nối).
-**Output / Đầu ra**: PowerPoint, Word, PDF, Markdown, MP3, or a Google Docs/Slides link.
+**Output / Đầu ra**: a **Google Slides/Docs link + PDF** by default; PowerPoint, Word, Markdown or MP3 on request / mặc định là **link Google Slides/Docs + PDF**; PowerPoint, Word, Markdown hoặc MP3 nếu bạn yêu cầu.
+**Why / Vì sao**: Google renders the file once so it looks the same on Mac, Windows, iPad and the browser / Google dựng file một lần nên hiển thị giống nhau trên Mac, Windows, iPad và trình duyệt. Files stay private in your Drive / File nằm riêng tư trong Drive của bạn.
 
 ---
 

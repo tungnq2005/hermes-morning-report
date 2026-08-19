@@ -35,6 +35,15 @@ BODY = RGBColor(0x33, 0x33, 0x33)
 MUTED = RGBColor(0x6B, 0x6B, 0x6B)
 CARD_BG = RGBColor(0xF4, 0xF6, 0xFB)   # light card fill
 
+# A divider's scrim has to stay readable over the *brightest* photo Openverse might
+# return. Measured against a white picture, the old 70%-opacity section colour left
+# white text at 3.0:1 on green and 3.6:1 on red -- below the 4.5:1 that body text needs,
+# and exactly the "chữ chìm vào nền" case. Darkening the scrim colour buys the contrast
+# without hiding the picture the way a near-opaque scrim would: at 55% darkening and
+# 74% opacity the worst case (white photo) measures 7.1 navy / 5.3 green / 6.0 red.
+SCRIM_DARKEN = 0.55
+SCRIM_ALPHA = 74
+
 MAX_BULLETS_PER_SLIDE = 6
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
@@ -116,6 +125,11 @@ def _color_for(key: str) -> RGBColor:
     if key == "risk":
         return RISK
     return ACCENT
+
+
+def _darken(color: RGBColor, factor: float) -> RGBColor:
+    value = int(str(color), 16)
+    return RGBColor(*(int(((value >> shift) & 0xFF) * factor) for shift in (16, 8, 0)))
 
 
 def _color_background(slide, color: RGBColor) -> None:
@@ -297,6 +311,14 @@ def _fitting_body_size(bullets: list[str], width, height):
     return BODY_SIZE_CHOICES[-1]
 
 
+def _fitting_card_body_size(text: str, width, height):
+    """Card body size, capped at 14pt (the card design's body max) and floored at 11pt."""
+    for size in (Pt(14), Pt(12), Pt(11)):
+        if estimated_text_height([text], size, width) <= height:
+            return size
+    return Pt(11)
+
+
 def _clear_effect_ref(shape) -> None:
     from pptx.oxml.ns import qn
 
@@ -329,9 +351,7 @@ def _style_title(placeholder, size=None, color=ACCENT, anchor=MSO_ANCHOR.BOTTOM)
     chosen = size or _pick(TITLE_SIZES, len(placeholder.text))
     for para in frame.paragraphs:
         para.alignment = PP_ALIGN.LEFT
-        para.font.size = chosen
-        para.font.bold = True
-        para.font.color.rgb = color
+        _paint(para, size=chosen, color=color, bold=True)
         para.font._rPr.set("cap", "none")
         for run in para.runs:
             run.font._rPr.set("cap", "none")
@@ -351,8 +371,7 @@ def _title_slide(prs: Presentation, title: str, subtitle: str,
         _fit(sub, MARGIN, Inches(3.4), text_w, Inches(1.0))
         for para in sub.text_frame.paragraphs:
             para.alignment = PP_ALIGN.LEFT
-            para.font.size = Pt(18)
-            para.font.color.rgb = TINT
+            _paint(para, size=Pt(18), color=TINT)
     else:
         # An empty placeholder still prints its "Click to add subtitle" prompt in
         # some viewers; drop the shape when there is nothing to say.
@@ -377,12 +396,17 @@ def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None,
     image_placed = False
     if image:
         try:
-            # Full-bleed photo tinted with the section colour, title on top.
+            # Full-bleed photo tinted with the section colour, title on top. The slide's
+            # own background is painted the same dark tint even though the photo hides
+            # it: `_background_is_dark` reads the background fill, and without this the
+            # darkest slides in the deck reported "light" and got a grey slide number
+            # drawn on near-black.
+            _color_background(slide, _darken(color, SCRIM_DARKEN))
             picture = _place_picture_cover(slide, image, 0, 0, SLIDE_W, SLIDE_H)
             scrim = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
             scrim.fill.solid()
-            scrim.fill.fore_color.rgb = color
-            _set_fill_alpha(scrim, 70)
+            scrim.fill.fore_color.rgb = _darken(color, SCRIM_DARKEN)
+            _set_fill_alpha(scrim, SCRIM_ALPHA)
             scrim.line.fill.background()
             scrim.shadow.inherit = False
             _strip_style_ref(scrim)
@@ -408,8 +432,10 @@ def _divider_slide(prs: Presentation, title: str, lead: str, image: str | None,
         frame.word_wrap = True
         for para in frame.paragraphs:
             para.alignment = PP_ALIGN.LEFT
-            para.font.size = Pt(16)
-            para.font.color.rgb = TINT
+            # White, not TINT: at 16pt the tint measures 4.1:1 on the green divider and
+            # 2.3:1 once the divider carries a photo. TINT is only safe on the deep navy
+            # of the cover and closing panels.
+            _paint(para, size=Pt(16), color=WHITE)
     else:
         body._element.getparent().remove(body._element)
     _accent_bar(slide, top=TITLE_TOP + Inches(1.65), width=text_w, color=WHITE)
@@ -498,6 +524,30 @@ def _set_fill_alpha(shape, opacity_pct: float) -> None:
     srgb.append(srgb.makeelement(qn("a:alpha"), {"val": str(int(opacity_pct * 1000))}))
 
 
+def _paint(para, size=None, color: RGBColor | None = None, bold: bool | None = None) -> None:
+    """Apply font properties to the paragraph AND to every run inside it.
+
+    Setting only ``paragraph.font`` writes ``a:pPr/a:defRPr``. PowerPoint and
+    LibreOffice resolve a bare run against that default, so white-on-navy titles looked
+    right there -- but Google Slides' importer ignores the paragraph default and falls
+    back to its own layout, which repainted every title in the theme's dark ink and
+    dropped the font size with it. A run that carries its own colour survives all three.
+    """
+    if size is not None:
+        para.font.size = size
+    if color is not None:
+        para.font.color.rgb = color
+    if bold is not None:
+        para.font.bold = bold
+    for run in para.runs:
+        if size is not None:
+            run.font.size = size
+        if color is not None:
+            run.font.color.rgb = color
+        if bold is not None:
+            run.font.bold = bold
+
+
 def _add_run(para, text: str, size, color: RGBColor, bold: bool = False) -> None:
     if not text:
         return
@@ -541,14 +591,19 @@ def _stat_slide(prs: Presentation, title: str, items: list[str], color: RGBColor
         tf.margin_top = Inches(0.1)
         tf.margin_bottom = Inches(0.08)
         tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        _enable_shrink_on_overflow(tf)
         span = _find_stat_span(item)
         head = tf.paragraphs[0]
+        body_w = card.width - Inches(0.3) - Inches(0.15)
         if span:
             head.font.size = Pt(24)
             _add_run(head, item[span[0]:span[1]], Pt(24), color, bold=True)
             body = tf.add_paragraph()
-            body.font.size = Pt(14)
-            _add_run(body, item, Pt(14), BODY)
+            head_h = Emu(int(Pt(24) * LINE_HEIGHT_EM))
+            avail = card_h - Inches(0.1) - Inches(0.08) - head_h
+            body_size = _fitting_card_body_size(item, body_w, avail)
+            body.font.size = body_size
+            _add_run(body, item, body_size, BODY)
         else:
             head.font.size = Pt(15)
             _add_run(head, item, Pt(15), BODY)
@@ -580,12 +635,17 @@ def _card_slide(prs: Presentation, title: str, items: list[str], color: RGBColor
         tf.margin_top = Inches(0.12)
         tf.margin_bottom = Inches(0.08)
         tf.vertical_anchor = MSO_ANCHOR.TOP
+        _enable_shrink_on_overflow(tf)
         num = tf.paragraphs[0]
         num.font.size = Pt(20)
         _add_run(num, str(i + 1), Pt(20), color, bold=True)
         text = tf.add_paragraph()
-        text.font.size = Pt(14)
-        _add_run(text, item, Pt(14), BODY)
+        body_w = card_w - Inches(0.2) - Inches(0.2)
+        num_h = Emu(int(Pt(20) * LINE_HEIGHT_EM))
+        avail = card_h - Inches(0.12) - Inches(0.08) - num_h
+        body_size = _fitting_card_body_size(item, body_w, avail)
+        text.font.size = body_size
+        _add_run(text, item, body_size, BODY)
 
 
 def _enable_shrink_on_overflow(frame) -> None:
@@ -625,8 +685,7 @@ def _credits_slide(prs: Presentation, credits: list[dict], words: dict) -> None:
     for i, line in enumerate(lines):
         para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
         para.text = line
-        para.font.size = Pt(14)
-        para.font.color.rgb = MUTED
+        _paint(para, size=Pt(14), color=MUTED)
         para.space_after = Pt(6)
 
 
@@ -642,8 +701,7 @@ def _closing_slide(prs: Presentation, title: str, words: dict) -> None:
     _fit(body, MARGIN, Inches(2.3), FULL_W, Inches(1.2))
     for para in body.text_frame.paragraphs:
         para.alignment = PP_ALIGN.LEFT
-        para.font.size = Pt(20)
-        para.font.color.rgb = TINT
+        _paint(para, size=Pt(20), color=TINT)
     _accent_bar(slide, top=Inches(2.05), color=WHITE)
 
 
@@ -675,5 +733,4 @@ def _add_slide_numbers(prs: Presentation) -> None:
                                        Inches(0.7), Inches(0.35))
         para = box.text_frame.paragraphs[0]
         para.text = str(index)
-        para.font.size = Pt(11)
-        para.font.color.rgb = color
+        _paint(para, size=Pt(11), color=color)

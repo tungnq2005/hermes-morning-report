@@ -214,6 +214,26 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/generate_audio_file
 MEDIA:<run_dir from Step 2 output>/morning-report-<safe-topic-slug>.mp3
 ```
 
+### Step 5: Bản Google — chỉ khi người dùng hỏi
+
+Bản tin gửi đi vẫn là text + MP3. KHÔNG tự sinh file Google mỗi lần chạy: mỗi lần chạy
+sẽ tạo một file mới trong Drive của người dùng, một tháng là 30 file rác.
+
+- **Manual run:** được thêm ĐÚNG MỘT dòng ngắn ở cuối, sau dòng `MEDIA:`, gợi ý rằng có
+  thể xuất bản tin ra Google Docs/Slides nếu họ cần.
+- **Cron run:** không thêm dòng nào — nội dung gửi đi phải đúng như quy định ở đầu mục.
+
+Khi người dùng đồng ý, chạy doc-convert trên chính `report.md` của lần chạy đó:
+
+```bash
+python3 skills/doc-convert/scripts/convert.py \
+  --input "<run_dir from Step 2 output>/report.md" \
+  --to gdoc --title "<tiêu đề bản tin>"
+```
+
+`--to gslides` nếu họ muốn slide (bản tin nhiều số liệu sẽ tự lên thẻ số liệu). Gửi
+`google_url` dạng link bấm được kèm PDF theo `skills/doc-convert/prompts/convert.md`.
+
 ---
 
 
