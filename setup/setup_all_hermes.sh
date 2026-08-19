@@ -34,6 +34,10 @@ run 04_bootstrap_skill_hermes.sh
 if [[ "${OC_SEARCH_PROVIDER:-}" == "searxng" ]]; then
   run 05_searxng_hermes.sh
 fi
+# 06: Google Workspace cho D2. Nằm trong luồng chính chứ không phải "tuỳ chọn sau khi
+# cài" — thiếu nó thì doc-convert dựng file cục bộ, đúng loại file hiển thị lệch trên
+# máy Mac, mà người cài không có cách nào biết. Script cho phép bỏ qua có chủ đích.
+run 06_google_oauth_hermes.sh
 
 echo
 echo "================================================================"

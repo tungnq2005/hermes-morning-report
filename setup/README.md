@@ -35,12 +35,43 @@ cd openclaw-morning_report/setup
 chmod +x setup_all_hermes.sh scripts/*.sh
 
 cp config.env.example config.env   # setup_all_hermes.sh source config.env, không phải .example
-nano config.env                    # sửa OC_USER, OC_TIMEZONE, OC_DELIVERY_TIME, OC_SEARCH_PROVIDER...
+nano config.env                    # sửa OC_USER, OC_TIMEZONE, OC_DELIVERY_TIME, OC_SEARCH_PROVIDER,
+                                   # và OC_GOOGLE_SCOPES (minimal / private-links — xem bước 06)
 
 ./setup_all_hermes.sh         # chạy tuần tự, dừng xác nhận trước mỗi bước
 ```
 
+Các bước script sẽ chạy:
+
+| Bước | Làm gì | Cần bạn thao tác gì |
+| --- | --- | --- |
+| 01 | Cài gói hệ thống (LibreOffice, python libs, font Carlito) | không |
+| 02 | `hermes setup` + cài gateway systemd | wizard: chọn model DeepSeek, dán Telegram bot token |
+| 03 | Ghi `EXA_API_KEY` / `FIRECRAWL_API_KEY` / `BRAVE_SEARCH_API_KEY` | dán key |
+| 04 | Symlink 2 skill từ repo + chạy unit test + preflight | không |
+| 05 | SearXNG (chỉ khi `OC_SEARCH_PROVIDER=searxng`) | không |
+| **06** | **Kết nối Google Workspace cho D2** | **5 phút trên Google Cloud Console + 1 lần bấm Cho phép** |
+
 Bước `02_install_hermes.sh` chạy `hermes setup` (wizard tương tác — chọn model/provider DeepSeek + Telegram) rồi `hermes gateway install --start-now --start-on-login` (systemd user service, native).
+
+### Bước 06 — Google Workspace: đọc trước khi chạy
+
+D2 dựng slide/tài liệu **trên Google** rồi mới xuất file giao cho người dùng, vì file `.pptx` do server tự dựng hiển thị lệch trong PowerPoint trên máy Mac còn bản Google thì giống nhau trên mọi máy. Script `06_google_oauth_hermes.sh` dẫn từng bước, nhưng có **hai chỗ quyết định trước khi chạy**:
+
+1. **Chọn bộ quyền** (`OC_GOOGLE_SCOPES` trong `config.env`):
+   - `minimal` (mặc định) — chỉ `drive.file`, bot **chỉ đụng được file do chính nó tạo**. Không có màn hình cảnh báo, dễ giải thích với khách. Đổi lại không đọc được link Google riêng tư người dùng dán vào.
+   - `private-links` — thêm `drive.readonly` để đọc link riêng tư. Đây là scope **restricted**: người dùng phải bấm qua màn hình *"Google hasn't verified this app"*.
+2. **PUBLISH APP trên màn hình OAuth consent.** Để ở chế độ *Testing* thì Google cho refresh token sống **đúng 7 ngày** — bot chạy ngon cả tuần rồi chết với `invalid_grant`. Script bắt gõ `published` để xác nhận, đừng gõ cho qua.
+
+Script tự làm phần còn lại: kiểm tra file JSON đúng loại Desktop app, ghi `DOC_CONVERT_GCREDS_DIR` + `DOC_CONVERT_GOOGLE_SCOPES` vào `~/.hermes/.env`, chạy cấp quyền qua SSH tunnel, verify bằng preflight, và chạy thử một lần chuyển đổi thật để lấy link Google cho khách xác nhận.
+
+Bỏ qua được (gõ `y` ở đầu bước) — D2 vẫn convert nhưng dựng file cục bộ kèm cảnh báo `google_unauthorized:rendered_locally`, và `--to gslides/gdoc` báo lỗi. Chạy lại lúc nào cũng được:
+
+```bash
+bash setup/scripts/06_google_oauth_hermes.sh
+```
+
+Chi tiết từng màn hình Console, câu hỏi của khách về quyền riêng tư, bảng tra sự cố: [docs/google-oauth-setup.vi.md](../docs/google-oauth-setup.vi.md) · [EN](../docs/google-oauth-setup.en.md).
 
 ## Sau khi cài
 1. Mở Telegram, chat `@your_bot`: *"Setup Morning Report cho tôi bằng skill morning report."* (hoặc chạy `python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --save --enable-cron`).
@@ -50,12 +81,8 @@ Bước `02_install_hermes.sh` chạy `hermes setup` (wizard tương tác — ch
 
 ## Tuỳ chọn sau khi cài
 - **Morning Report search**: skill dùng `exa` chính + `brave` dự phòng trong `collect_sources.py` (cần `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, `FIRECRAWL_API_KEY` trong `~/.hermes/.env`). `OC_SEARCH_PROVIDER=searxng` chỉ kích hoạt bước 05 (SearXNG cho platform `web` tool của Hermes) — không ảnh hưởng search của skill.
-- **Google Workspace OAuth** — **nên làm, không phải tuỳ chọn thực sự**: D2 dựng kết quả trên Google Slides/Docs rồi export file từ đó, nhờ vậy mở trên macOS/Windows/iPad đều giống nhau. Hướng dẫn đầy đủ từng bước (kể cả bước **PUBLISH APP** mà bỏ qua là bot chết sau 7 ngày): [docs/google-oauth-setup.vi.md](../docs/google-oauth-setup.vi.md) · [EN](../docs/google-oauth-setup.en.md). Tóm tắt: chép `client_secret.json` vào `skills/doc-convert/state/google-creds/` rồi chạy:
-  ```bash
-  python3 skills/doc-convert/scripts/authorize_google.py
-  ```
-  Bỏ qua thì D2 vẫn convert được nhưng render bằng python-pptx/LibreOffice (kèm cảnh báo `google_unauthorized:rendered_locally`), và file .pptx có thể hiển thị lệch trong PowerPoint trên Mac; `--to gslides/gdoc` sẽ báo lỗi.
 - **Ảnh cho slide**: D2 tự lấy ảnh CC từ Openverse, không cần API key. Muốn tắt: `--no-auto-images`.
+- **Đổi bộ quyền Google sau này**: sửa `DOC_CONVERT_GOOGLE_SCOPES` trong `~/.hermes/.env`, xoá `token.json`, chạy lại bước 06.
 
 ## Kiểm chứng đã làm
 - Toàn bộ script `*_hermes.sh`: `bash -n` pass.
