@@ -14,7 +14,7 @@
 set -euo pipefail
 
 MR_REPO_REF="${MR_REPO_REF:-main}"
-MR_REPO_TARBALL="${MR_REPO_TARBALL:-https://codeload.github.com/tungnq2005/openclaw-morning_report/tar.gz/refs/heads/${MR_REPO_REF}}"
+MR_REPO_TARBALL="${MR_REPO_TARBALL:-https://codeload.github.com/tungnq2005/hermes-morning-report/tar.gz/refs/heads/${MR_REPO_REF}}"
 MR_SOURCE_DIR="${MR_SOURCE_DIR:-}"          # set automatically; override for testing
 INSTALL_LOG="$HOME/hermes-install.log"
 HERMES_ENV_FILE="$HOME/.hermes/.env"
