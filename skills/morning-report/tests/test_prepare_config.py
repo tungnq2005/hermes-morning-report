@@ -1,9 +1,11 @@
 """Tests for prepare_config.py (per-topic config + cron reconcile)."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -14,7 +16,9 @@ from prepare_config import (
     cron_job_name_for_topic,
     cron_prompt_for_topic,
     find_morning_report_jobs,
-    local_time_to_utc_cron,
+    hermes_config_timezone,
+    hermes_effective_timezone,
+    local_time_to_cron,
     render_prepare_output,
     requested_review,
     sync_cron_jobs,
@@ -193,14 +197,86 @@ def test_render_migrates_flat_config_on_status():
 
 
 # ── cron helpers ──
-def test_local_time_to_utc_cron_basic():
-    # 08:00 Asia/Ho_Chi_Minh (UTC+7) -> 01:00 UTC
-    assert local_time_to_utc_cron("08:00", "Asia/Ho_Chi_Minh") == "0 1 * * *"
+@contextmanager
+def hermes_tz(value):
+    """Pin the timezone Hermes would evaluate cron in (HERMES_TIMEZONE wins)."""
+    previous = os.environ.get("HERMES_TIMEZONE")
+    os.environ["HERMES_TIMEZONE"] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("HERMES_TIMEZONE", None)
+        else:
+            os.environ["HERMES_TIMEZONE"] = previous
 
 
-def test_local_time_to_utc_cron_offset():
+def test_local_time_to_cron_utc_host():
+    # Hermes on UTC (the Ubuntu VPS): 08:00 Asia/Ho_Chi_Minh (UTC+7) -> 01:00 UTC
+    with hermes_tz("UTC"):
+        assert local_time_to_cron("08:00", "Asia/Ho_Chi_Minh") == "0 1 * * *"
+
+
+def test_local_time_to_cron_same_tz_host():
+    # Hermes on the customer's own timezone (macOS desktop): no shift at all.
+    with hermes_tz("Asia/Ho_Chi_Minh"):
+        assert local_time_to_cron("08:00", "Asia/Ho_Chi_Minh") == "0 8 * * *"
+
+
+def test_local_time_to_cron_cross_tz_host():
+    # Topic in ICT, Hermes clock in Tokyo (UTC+9): 08:00 ICT -> 10:00 JST
+    with hermes_tz("Asia/Tokyo"):
+        assert local_time_to_cron("08:00", "Asia/Ho_Chi_Minh") == "0 10 * * *"
+
+
+def test_local_time_to_cron_offset():
     # 08:00 + 120 min -> 10:00 ICT -> 03:00 UTC
-    assert local_time_to_utc_cron("08:00", "Asia/Ho_Chi_Minh", offset_minutes=120) == "0 3 * * *"
+    with hermes_tz("UTC"):
+        assert local_time_to_cron("08:00", "Asia/Ho_Chi_Minh", offset_minutes=120) == "0 3 * * *"
+
+
+def test_local_time_to_cron_bad_hermes_tz_falls_back_to_local():
+    # Fail-open like upstream hermes_time.py: a garbage value must not raise.
+    with hermes_tz("Not/AZone"):
+        assert local_time_to_cron("08:00", "Asia/Ho_Chi_Minh").endswith("* * *")
+
+
+def test_local_time_to_cron_rejects_bad_delivery_time():
+    for bad in ("8am", "25:00", "08:60", ""):
+        try:
+            local_time_to_cron(bad, "Asia/Ho_Chi_Minh")
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
+
+
+def test_hermes_config_timezone_reads_top_level_key():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = Path(tmp) / "config.yaml"
+        cfg.write_text('model: deepseek\ntimezone: "Asia/Ho_Chi_Minh"  # local\n', encoding="utf-8")
+        assert hermes_config_timezone(cfg) == "Asia/Ho_Chi_Minh"
+
+
+def test_hermes_config_timezone_missing_file_or_key():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert hermes_config_timezone(Path(tmp) / "nope.yaml") == ""
+        cfg = Path(tmp) / "config.yaml"
+        cfg.write_text("model: deepseek\n", encoding="utf-8")
+        assert hermes_config_timezone(cfg) == ""
+
+
+def test_hermes_effective_timezone_env_beats_config():
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = Path(tmp) / "config.yaml"
+        cfg.write_text("timezone: Asia/Tokyo\n", encoding="utf-8")
+        with hermes_tz("UTC"):
+            assert hermes_effective_timezone(cfg) == "UTC"
+        previous = os.environ.pop("HERMES_TIMEZONE", None)
+        try:
+            assert hermes_effective_timezone(cfg) == "Asia/Tokyo"
+        finally:
+            if previous is not None:
+                os.environ["HERMES_TIMEZONE"] = previous
 
 
 def test_cron_job_name_for_topic():

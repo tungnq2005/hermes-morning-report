@@ -1,5 +1,38 @@
 # Morning Brief Setup — Hermes Agent (D1 + D2 + D3)
 
+Hai đường cài đặt, chọn theo hạ tầng khách hàng:
+
+| Môi trường | Script | Ghi chú |
+|---|---|---|
+| **VPS Ubuntu** | `setup_all_hermes.sh` (+ `scripts/0*.sh`) | Phần còn lại của tài liệu này. systemd user service + linger |
+| **macOS desktop luôn bật** | `install-mac.sh` → tự chain `install-doc-addon.sh` | Wizard tiếng Anh, xem [../docs/install-mac.md](../docs/install-mac.md). **Không** dùng `setup_all_hermes.sh` trên macOS (apt/systemd/getent không có) |
+
+## macOS path (English)
+
+```bash
+curl -fsSL https://<host>/install-mac.sh | bash        # installs BOTH skills
+bash install-doc-addon.sh                             # re-run just the D2 add-on
+bash scripts/healthcheck_hermes.sh                    # works on macOS and Ubuntu
+hermes-check                                          # customer-facing diagnostic block
+```
+
+| File | Role |
+|---|---|
+| `install-mac.sh` | 10 steps: preflight → Hermes CLI → key wizard → `hermes setup` → copy skills → LaunchAgent → `pmset sleep 0` + watchdog → topics/time → **live test delivery** → chain the D2 add-on |
+| `install-doc-addon.sh` | Homebrew + LibreOffice + ffmpeg + `soffice` symlink + pip packages **into the Hermes venv** + copy `doc-convert` + preflight |
+| `lib/wizard-prompts.sh` | English prompts, `/dev/tty` input, key masking, `~/.hermes/.env` read/write |
+| `lib/validate-api-keys.sh` | Per-key validation against the same endpoints the skill calls at report time |
+| `lib/setup-launchd.sh` | `hermes gateway install` + single-PID assertion + `pmset` (deliberately no plist patch, no `launchctl load -w` — upstream already handles both) |
+| `lib/setup-watchdog.sh` | 15-minute LaunchAgent watchdog that alerts Telegram via `curl`, outside Hermes, plus the `hermes-check` command |
+| `tests/smoke-test-installer.sh` | Off-machine checks (temp HOME, nothing installed): env handling, masking, all 5 validators, generated watchdog/plist artifacts, interpreter probe, healthcheck grace window |
+
+Findings that shaped these scripts (launchd label/plist, cron timezone, the 409 trap,
+which interpreter runs skill scripts): `plans/260813-1639-mac-customer-installer/reports/verify-mac-260813.md`.
+
+---
+
+## VPS Ubuntu path
+
 Bộ script + tài liệu để deploy trợ lý AI Telegram (Hermes Agent, cài **NATIVE** không Docker) lên VPS Ubuntu, gồm cả 3 skill và tài liệu bàn giao.
 
 - **D1 — Morning Report**: bot gửi bản tin sáng (text + audio 3–5 phút) qua cron, per-topic.

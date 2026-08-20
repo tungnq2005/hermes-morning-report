@@ -12,10 +12,11 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -192,7 +193,74 @@ def cron_prompt_for_topic(topic: str) -> str:
     return CRON_PROMPT_TEMPLATE.format(topic=topic)
 
 
-def local_time_to_utc_cron(delivery_time: str, tz_name: str, offset_minutes: int = 0) -> str:
+HERMES_CONFIG_PATH = Path.home() / ".hermes" / "config.yaml"
+_HERMES_CONFIG_TZ_RE = re.compile(r"""^timezone:\s*['"]?([A-Za-z0-9_+\-/]+)['"]?\s*(?:#.*)?$""")
+
+
+def hermes_config_timezone(config_path: Path | None = None) -> str:
+    """Read the top-level `timezone:` key from ~/.hermes/config.yaml.
+
+    Deliberately a line-level regex instead of a YAML parse: this skill must run
+    on macOS system Python with no third-party packages installed, and Hermes'
+    own `timezone` key is always a top-level scalar.
+    """
+    path = HERMES_CONFIG_PATH if config_path is None else config_path
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        match = _HERMES_CONFIG_TZ_RE.match(line.strip("﻿"))
+        if match:
+            return match.group(1)
+    return ""
+
+
+def hermes_effective_timezone(config_path: Path | None = None) -> str:
+    """Return the IANA timezone Hermes evaluates cron expressions in.
+
+    Mirrors upstream `hermes_time.py` resolution order exactly:
+      1. HERMES_TIMEZONE env var
+      2. `timezone:` in ~/.hermes/config.yaml
+      3. the machine's local timezone (empty string -> caller uses local time)
+
+    Getting this wrong shifts every delivery by the UTC offset: an Ubuntu VPS
+    runs on UTC so converting to UTC happened to be correct there, but a macOS
+    desktop runs on the user's own timezone.
+    """
+    tz_env = os.environ.get("HERMES_TIMEZONE", "").strip()
+    if tz_env:
+        return tz_env
+    return hermes_config_timezone(config_path)
+
+
+def _hermes_tzinfo(config_path: Path | None = None):
+    """Resolve `hermes_effective_timezone()` to a tzinfo, falling back to local.
+
+    Fail-open like upstream: an unusable timezone string must not break cron
+    reconcile, it just means Hermes is running on machine-local time.
+    """
+    tz_name = hermes_effective_timezone(config_path)
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return datetime.now().astimezone().tzinfo
+
+
+def local_time_to_cron(
+    delivery_time: str,
+    tz_name: str,
+    offset_minutes: int = 0,
+    *,
+    config_path: Path | None = None,
+) -> str:
+    """Convert a topic's local delivery time to a cron expression Hermes reads.
+
+    The returned expression is in Hermes' *effective* timezone, not UTC —
+    `hermes cron` evaluates schedules against `hermes_time.now()`.
+    """
     match = re.fullmatch(r"(\d{1,2}):(\d{2})", delivery_time.strip())
     if not match:
         raise ValueError("delivery_time must use HH:MM format")
@@ -204,14 +272,14 @@ def local_time_to_utc_cron(delivery_time: str, tz_name: str, offset_minutes: int
 
     try:
         zone = ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError as exc:
+    except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ValueError(f"unknown timezone: {tz_name}") from exc
 
     local_dt = datetime.now(zone).replace(hour=hour, minute=minute, second=0, microsecond=0)
     if offset_minutes:
         local_dt = local_dt + timedelta(minutes=offset_minutes)
-    utc_dt = local_dt.astimezone(timezone.utc)
-    return f"{utc_dt.minute} {utc_dt.hour} * * *"
+    target_dt = local_dt.astimezone(_hermes_tzinfo(config_path))
+    return f"{target_dt.minute} {target_dt.hour} * * *"
 
 
 def find_morning_report_jobs(cron_list_output: str) -> list[tuple[str, str, str]]:
@@ -288,7 +356,7 @@ def sync_cron_jobs(
                 continue
             name = cron_job_name_for_topic(t["topic"])
             try:
-                schedule = local_time_to_utc_cron(str(t["delivery_time"]), str(t["timezone"]))
+                schedule = local_time_to_cron(str(t["delivery_time"]), str(t["timezone"]))
             except ValueError as exc:
                 messages.append(f"Could not schedule '{t['topic']}': {exc}")
                 continue
@@ -333,7 +401,7 @@ def sync_cron_jobs(
                 messages.append(f"No existing job for '{t['topic']}' to update; use --enable-cron to create it.")
                 continue
             try:
-                schedule = local_time_to_utc_cron(str(t["delivery_time"]), str(t["timezone"]))
+                schedule = local_time_to_cron(str(t["delivery_time"]), str(t["timezone"]))
             except ValueError as exc:
                 messages.append(f"Could not schedule '{t['topic']}': {exc}")
                 continue
