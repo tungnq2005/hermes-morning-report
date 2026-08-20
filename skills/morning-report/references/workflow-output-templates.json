@@ -41,7 +41,7 @@
       },
       "search_provider_failed": {
         "success": false,
-        "next_action": "Stop. Tell the user in their language that the report could not run because the search provider failed. Mention that run details were saved for troubleshooting.",
+        "next_action": "Stop. Tell the user in their language that the report could not run because the search provider failed. Mention that run details were saved for troubleshooting. The usual cause is a missing, expired or out-of-quota search key, which the user can fix themselves: run `python3 ~/.hermes/skills/guided-setup/scripts/check_setup.py --verify`, and if a key is missing or invalid, offer to reconnect it now via the guided-setup skill. Do not tell the user to edit files or use a terminal.",
         "run_dir": "{run_dir}"
       }
     },
@@ -77,6 +77,32 @@
       },
       "error": {
         "next_action": "Stop. Tell the user in their language that one or more schedules could not be {action}d because the cron command failed: {error}. Suggest trying again later."
+      }
+    },
+    "export_report": {
+      "exported": {
+        "next_action": "The report now has a Google copy. Reply in the user's language. Send google_url as a clickable link, then, if output is set, a standalone line MEDIA:<output> for the PDF copy. Do not paste the report text again - the user already received it. Keep it to one or two short sentences."
+      },
+      "exported_file": {
+        "next_action": "The report was converted to a plain file (no Google link for this target). Reply in the user's language. Send it as a standalone line MEDIA:<output> and say in one sentence what it is. Do not paste the report text again."
+      },
+      "reused": {
+        "next_action": "This report was already exported at {exported_at}, so the existing file is returned instead of creating a duplicate in the user's Drive. Reply in the user's language. Send the same google_url as a clickable link and say it is the copy made earlier. If they want a brand-new file, rerun export_report.py with --again."
+      },
+      "listed": {
+        "next_action": "Reply in the user's language. Show the entries in reports as a short list, one line each: topic - date - time, and mark the ones that already have an export. Ask which report to export and whether they want a document (Google Docs) or slides (Google Slides). Do not show run_dir paths or file names."
+      },
+      "no_runs": {
+        "next_action": "Stop. Reply in the user's language: no Morning Report has been generated yet, so there is nothing to export. Offer to run one now (Run Report workflow)."
+      },
+      "no_match": {
+        "next_action": "Stop. Reply in the user's language: no stored report matches what they asked for. List the entries in available as topic - date and ask which one they meant. Do not show run_dir paths."
+      },
+      "google_unauthorized": {
+        "next_action": "Stop. The Google copy could not be created because this install is not connected to Google. Reply in the user's language: say a one-time Google connection is needed, that it takes a few minutes and can be done right here in chat, and ask whether to do it now. If they agree, load skill_view(name=\"guided-setup\") and follow the Connect Google workflow. Never tell the user to open a terminal or run a script."
+      },
+      "failed": {
+        "next_action": "Stop. The export failed: {error}. Reply in the user's language: say plainly that the Google copy could not be created and why, in everyday words. Offer to try again. Never invent a link."
       }
     }
   }

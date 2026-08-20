@@ -5,6 +5,7 @@
 **/token.json
 **/client_secret.json
 *client_secret*.json
+**/oauth-pending.json
 *.pem
 *.key
 

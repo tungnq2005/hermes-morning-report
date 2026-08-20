@@ -86,7 +86,11 @@ def main() -> int:
         warnings.append("morning-report TTS helper not found - narration disabled (conversion still works)")
 
     # Google Workspace (optional feature): libs + credentials + authorized token.
-    creds_dir = os.path.join(SKILL_DIR, "state", "google-creds")
+    # Resolve the directory the way google_io does -- DOC_CONVERT_GCREDS_DIR first --
+    # or an install that keeps credentials outside the repo (the setup default) reports
+    # "not authorized" while conversions are authorizing fine.
+    creds_dir = os.environ.get("DOC_CONVERT_GCREDS_DIR") or os.path.join(
+        SKILL_DIR, "state", "google-creds")
     try:
         import googleapiclient  # noqa: F401
         import google_auth_oauthlib  # noqa: F401
@@ -95,6 +99,7 @@ def main() -> int:
         g_libs = False
     checks["google"] = {
         "libs_installed": g_libs,
+        "creds_dir": creds_dir,
         "client_secret": os.path.exists(os.path.join(creds_dir, "client_secret.json")),
         "authorized_token": os.path.exists(os.path.join(creds_dir, "token.json")),
     }

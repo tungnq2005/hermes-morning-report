@@ -127,3 +127,47 @@ def record_audio_validation(run_dir: Path, audio_file: Path) -> dict[str, Any]:
     manifest["audio"] = audio_meta
     write_manifest(run_dir, manifest)
     return manifest["audio"]
+
+
+def record_run_topic(run_dir: Path, topic: str, *, title: str | None = None) -> dict[str, Any]:
+    """Stamp the topic on a run as soon as its directory exists.
+
+    Without this a stored run is just a timestamp, so "export the crypto report"
+    has nothing to match on -- the whole point of keeping history is being able to
+    come back to one report later.
+    """
+    manifest = load_manifest(run_dir)
+    _ensure_manifest_defaults(manifest, run_dir)
+    manifest["topic"] = topic
+    if title:
+        manifest["title"] = title
+    write_manifest(run_dir, manifest)
+    return manifest
+
+
+def record_export(run_dir: Path, export: dict[str, Any]) -> dict[str, Any]:
+    """Append one doc-convert export (Google Docs/Slides/PDF) to the run manifest.
+
+    Kept per run so asking twice for "today's report as a Google Doc" returns the
+    same file instead of littering the user's Drive with duplicates.
+    """
+    manifest = load_manifest(run_dir)
+    _ensure_manifest_defaults(manifest, run_dir)
+    exports = manifest.get("exports")
+    if not isinstance(exports, list):
+        exports = []
+    exports = [e for e in exports if not (isinstance(e, dict) and e.get("target") == export.get("target"))]
+    exports.append(export)
+    manifest["exports"] = exports
+    write_manifest(run_dir, manifest)
+    return manifest
+
+
+def find_export(manifest: dict[str, Any], target: str) -> dict[str, Any] | None:
+    exports = manifest.get("exports")
+    if not isinstance(exports, list):
+        return None
+    for item in exports:
+        if isinstance(item, dict) and item.get("target") == target and item.get("google_url"):
+            return item
+    return None

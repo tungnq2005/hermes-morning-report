@@ -8,6 +8,24 @@ Trợ lý có 2 khả năng chính:
 
 ---
 
+## 0. Lần đầu dùng: nhắn "Cài đặt giúp tôi"
+
+Trước khi dùng được, trợ lý cần vài "chìa khoá" để đi tìm tin và (nếu bạn muốn) quyền tạo
+file trong Google Drive của bạn. **Tất cả làm ngay trong chat này** — bạn không cần đụng
+server, không cần ai cài hộ.
+
+> **Cài đặt giúp tôi**
+
+Bot sẽ tự kiểm tra còn thiếu gì, gửi link, chỉ bạn bấm vào đâu để lấy từng key, bạn **dán
+key vào chat**, bot kiểm tra hộ rồi lưu lại. Khoảng 10 phút cho bản tin sáng, 20 phút nếu
+dùng cả chuyển đổi tài liệu. Dừng giữa chừng cũng được, nhắn *"tiếp tục cài đặt"* để chạy tiếp.
+
+Chi tiết từng bước, kể cả phần Google: [first-run-setup.vi.md](first-run-setup.vi.md).
+
+Đang dùng mà thấy báo thiếu key hoặc chưa kết nối Google? Nhắn *"Kiểm tra cài đặt giúp tôi"*.
+
+---
+
 ## 1. Bản tin buổi sáng (Morning Report)
 
 Mỗi sáng bot tự gửi cho bạn một bản tin tổng hợp về các chủ đề bạn quan tâm, gồm **bản chữ** + **file audio 3–5 phút** để nghe khi di chuyển.
@@ -28,6 +46,19 @@ Bot sẽ hỏi lần lượt: chủ đề theo dõi, giờ gửi, múi giờ, ph
 - **Bật lại**: *"Bật lại morning report"*
 - **Xem cấu hình hiện tại**: *"Morning report đang cấu hình thế nào?"*
 
+### Biến bản tin thành tài liệu
+Bản tin đã gửi vẫn nằm trong bộ nhớ của bot, nên bạn **không cần gửi lại gì cả** — chỉ cần nhắn:
+- *"Xuất bản tin sáng nay ra Google Docs"* → nhận link Google Docs + bản PDF
+- *"Làm slide từ bản tin crypto hôm qua"* → nhận link Google Slides + bản PDF
+- *"Gửi bản tin đó dạng PDF"*
+- *"Có những bản tin nào xuất được?"* → bot liệt kê các bản tin đã lưu để bạn chọn
+
+Bản xuất ra có **ảnh minh hoạ** (ảnh giấy phép mở, có ghi nguồn ở cuối): tài liệu thì mỗi mục một ảnh, slide thì ảnh nằm ở trang bìa — các trang số liệu vẫn để thẻ số cho dễ đọc. Không thích ảnh thì nói *"xuất bản tin, đừng chèn ảnh"*.
+
+Hỏi lại lần nữa cho cùng một bản tin, bot trả về **đúng file cũ** chứ không tạo bản trùng trong Drive của bạn; muốn hẳn một file mới thì nói *"tạo file mới giúp mình"*.
+
+Muốn khỏi phải nhắn mỗi ngày: *"Bản tin giá vàng thì lưu luôn vào Google Docs"* — từ đó mỗi bản tin của chủ đề đó gửi kèm sẵn link Google Docs. Đổi ý thì *"Thôi lưu bản tin giá vàng vào Google Docs"*. (Cần đã kết nối Google; mỗi ngày sẽ có thêm một file trong Drive.)
+
 ---
 
 ## 2. Chuyển đổi & tường thuật tài liệu (Document Conversion)
@@ -35,7 +66,7 @@ Bot sẽ hỏi lần lượt: chủ đề theo dõi, giờ gửi, múi giờ, ph
 Gửi cho bot một **file** (kéo–thả vào chat) hoặc một **link Google công khai**, kèm yêu cầu.
 
 ### Các định dạng hỗ trợ
-- **Đầu vào**: Word (.docx), PowerPoint (.pptx), PDF (dạng chữ), Text/Markdown, link Google Docs/Slides/Drive (đặt chế độ "Bất kỳ ai có link").
+- **Đầu vào**: Word (.docx), PowerPoint (.pptx), PDF (dạng chữ), Text/Markdown, link Google Docs/Slides/Drive (đặt chế độ "Bất kỳ ai có link"), **hoặc một bản tin sáng bạn đã nhận** (không cần gửi file — xem mục 1).
 - **Đầu ra**: **Google Slides / Google Docs** (mặc định), kèm PowerPoint, Word, PDF, Markdown, hoặc audio MP3.
 
 ### Cách dùng
@@ -62,4 +93,6 @@ File PowerPoint tạo trên server không phải lúc nào cũng hiển thị gi
 ## Khi gặp sự cố
 - Bot không trả lời? Đợi 1–2 phút (bot có thể đang bận xử lý). Nếu vẫn im, báo người quản trị.
 - Không nhận được bản tin sáng? Kiểm tra bạn chưa "tạm dừng"; nhắn *"Chạy thử morning report ngay"* để kiểm tra.
+- Bot báo thiếu key, key hỏng, hoặc chưa kết nối Google? Nhắn *"Kiểm tra cài đặt giúp tôi"* — bot tự dò và dẫn bạn nối lại phần còn thiếu ngay trong chat.
+- Bot trả file mà kèm lời nhắc "file dựng cục bộ"? Nghĩa là chưa kết nối Google; nhắn *"Kết nối Google giúp tôi"*.
 - Câu hỏi khác? Cứ nhắn bot bằng tiếng Việt bình thường — nó hiểu ngôn ngữ tự nhiên.

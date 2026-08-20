@@ -421,6 +421,38 @@ def test_sync_schedule_only_edits_existing_without_enable():
     assert removes == []
 
 
+def test_google_doc_can_be_turned_on_for_one_topic():
+    current = {"topics": [
+        {"topic": "AI", "delivery_time": "08:00", "timezone": "Asia/Ho_Chi_Minh",
+         "report_style": "concise", "report_language": "Vietnamese",
+         "audio_summary": "Enabled", "delivery_channel": "Telegram"},
+        {"topic": "Gold", "delivery_time": "08:00", "timezone": "Asia/Ho_Chi_Minh",
+         "report_style": "concise", "report_language": "Vietnamese",
+         "audio_summary": "Enabled", "delivery_channel": "Telegram"},
+    ]}
+    updated = apply_requested_config(current, {"topic": "AI", "google_doc": "Enabled"})
+    by_topic = {t["topic"]: t for t in updated["topics"]}
+    assert by_topic["AI"]["google_doc"] == "Enabled"
+    assert by_topic["Gold"].get("google_doc", "Disabled") == "Disabled"
+
+
+def test_google_doc_change_is_shown_to_the_user_before_saving():
+    current = {"topics": [{"topic": "AI", "delivery_time": "08:00", "timezone": "Asia/Ho_Chi_Minh",
+                           "report_style": "concise", "report_language": "Vietnamese",
+                           "audio_summary": "Enabled", "delivery_channel": "Telegram"}]}
+    requested = {"topic": "AI", "google_doc": "Enabled"}
+    candidate = apply_requested_config(current, requested)
+    bullets, warnings = requested_review(current, candidate, requested)
+    assert any("google_doc" in b for b in bullets), bullets
+    assert warnings == []
+
+
+def test_cron_prompt_gates_the_google_link_on_the_setting():
+    prompt = cron_prompt_for_topic("AI")
+    assert "google_doc Enabled" in prompt, prompt
+    assert "Step 5" in prompt
+
+
 # ── Run ──
 for name, fn in list(globals().items()):
     if name.startswith("test_"):

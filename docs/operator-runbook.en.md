@@ -14,9 +14,16 @@ Hermes Gateway  ── NATIVE install, systemd user service (hermes-gateway.serv
   ├─ TTS: Google Translate endpoint (keyless) → MP3
   ├─ Tools: tts/web/browser/terminal… (hermes tools list)
   └─ Skills:
+       • guided-setup      : walks the user through keys and Google, in chat
        • morning-report (D1): per-topic cron sends the morning brief
        • doc-convert   (D2): LibreOffice + python-docx/pptx/pypdf
 ```
+
+**Users configure themselves through chat.** `guided-setup` writes `EXA_API_KEY`,
+`FIRECRAWL_API_KEY` and `BRAVE_SEARCH_API_KEY` into `~/.hermes/.env` (mode 600) and
+creates `client_secret.json` + `token.json` in the credentials directory — the same places
+setup steps 03 and 06 write to. When a customer reports "the bot says a key is missing",
+the usual fix is telling them to say *"Set up the assistant for me"*, not an SSH session.
 
 **NATIVE install** (per this setup). Note: the official Hermes Docker image also includes the browser tool, but this setup uses native.
 
@@ -60,6 +67,16 @@ hermes security audit               # supply-chain (OSV.dev)
 
 ## Rotating an API key / token
 
+**Fastest route for search keys: let the user do it in chat** — *"I have a new Exa key,
+replace it"*. The skill verifies the key with the provider before overwriting, so a broken
+key never silently replaces a working one. To inspect without chat:
+
+```bash
+python3 ~/.hermes/skills/guided-setup/scripts/check_setup.py --verify
+```
+
+By hand:
+
 1. Edit the value in `~/.hermes/.env` (nano, **no sudo** — user-owned file, mode 600).
    - Search keys (EXA/FIRECRAWL/BRAVE): the skill reloads `.env` each run → no restart needed.
    - Telegram/DeepSeek: restart the gateway (step 2).
@@ -82,7 +99,9 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Bot not responding | Gateway down / network | `hermes gateway restart`; check `journalctl --user -u hermes-gateway.service` |
+| Bot says a key is missing/invalid, or Google is not connected | User configuration, not infrastructure | Tell the user to say *"Set up the assistant for me"*. To check yourself: `python3 ~/.hermes/skills/guided-setup/scripts/check_setup.py --verify` |
 | Sparse report, logs show `429` | Exa/Brave rate-limited | The skill auto-falls back Exa→Brave. If both 429: check `EXA_API_KEY`/`BRAVE_SEARCH_API_KEY` in `~/.hermes/.env`; retry later. (Platform web tool: `hermes config set web.search_backend` + `05_searxng_hermes.sh` optional) |
+| "Export the report to Google Docs" returns no link | Google is not connected (the report itself still goes out) | Have the user say *"Connect Google for me"*. Quick check: `python3 ~/.hermes/skills/productivity/morning-report/scripts/export_report.py --list` (which reports are stored) and `preflight.py --compact` → `google.authorized_token` |
 | Audio MP3 not sent | MEDIA path / Deliver / tts | `hermes tools list` (tts enabled by default). `hermes cron list --all` (Deliver: origin). MP3 is written by the skill to `~/.hermes/skills/.../state/history/<run>/` |
 | `hermes doctor` reports an issue | Missing config/dep | `hermes doctor --fix` (try auto-fix) or read the output |
 | Stranger's messages blocked | Pairing / allowed users | `hermes pairing approve <code>`; or set `TELEGRAM_ALLOWED_USERS` in `~/.hermes/.env` then `hermes gateway restart` |
@@ -103,7 +122,9 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 
 - Credentials: `~/.hermes/skills/doc-convert/state/google-creds/` (symlink → repo) contains `client_secret.json` (OAuth desktop client) + `token.json` (refresh token, mode 600). The dir has `.gitignore='*'` so it never reaches a repo.
 - First-time setup (create the project, enable APIs, **PUBLISH APP**, create the client, authorize, verify, troubleshoot): [google-oauth-setup.en.md](google-oauth-setup.en.md).
-- Re-authorize (token broken / account change): `python3 ~/.hermes/skills/doc-convert/scripts/authorize_google.py --port 8765` (headless VPS: SSH-tunnel `ssh -L 8765:localhost:8765 <user>@<vps>`).
+- **Default route is chat**: the user says *"Connect Google for me"* and `guided-setup` handles it end to end, with no SSH tunnel (the authorization code is read out of the address bar of the loopback error page). Use the terminal route only when the Drive is your own account.
+- Re-authorize from a terminal (token broken / account change): `python3 ~/.hermes/skills/doc-convert/scripts/authorize_google.py --port 8765` (headless VPS: SSH-tunnel `ssh -L 8765:localhost:8765 <user>@<vps>`).
+- Credentials directory: the chat route keeps a symlink at the default path `skills/doc-convert/state/google-creds` pointing at the real directory, so `google_io` finds the token even if the gateway does not export `DOC_CONVERT_GCREDS_DIR` into tool processes. `preflight.py` prints `google.creds_dir` for comparison.
 - Must be enabled in Google Cloud Console: **Drive API + Docs API + Slides API**. If the consent screen is in Testing mode, the account must be a listed Test user.
 - Verify: `python3 ~/.hermes/skills/doc-convert/scripts/preflight.py --compact` → `google.authorized_token: true`.
 - **Two scope sets** (`DOC_CONVERT_GOOGLE_SCOPES`), because scopes decide how hard customer setup is:
@@ -122,4 +143,4 @@ python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py \
 
 - **Keyless TTS**: uses the unofficial Google Translate endpoint; may be blocked/changed without notice. Upgrade path: Google Cloud TTS (keyed) or `edge-tts`.
 - **Slide imagery (D2)**: depends on the search provider; if search is throttled, slides may lack images.
-- **OAuth client secret**: was pasted through chat during setup — rotate it in Google Cloud Console after handover.
+- **The OAuth client secret travels through chat**: the chat setup route accepts a pasted `client_secret` (or the whole JSON file) in Telegram, so that secret stays in the customer's chat history. That is a deliberate trade for letting them do it themselves. Once connected, have them **delete that message**; for a stricter posture, create a new client in Google Cloud Console and delete the old one (the existing `token.json` keeps working until the client is deleted). Customers who will not accept this use the terminal route (setup step 06).

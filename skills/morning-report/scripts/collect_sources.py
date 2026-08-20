@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from helpers.check_topic_config import check_topic_config
+from helpers.history import record_run_topic
 
 
 # Paths and runtime defaults
@@ -445,6 +446,9 @@ def collect_sources(
     source_files: list[Path] = []
     seen_urls: set[str] = set()
     run_dir = run_dir or make_run_dir()
+    # Stamp the topic now: a run that fails later is still identifiable in history,
+    # and export_report.py resolves "the crypto report" by this field.
+    record_run_topic(run_dir, topic)
 
     items, search_engine, provider_responded = run_search_chain(
         topic, limit_per_call, search_timeout, searchers

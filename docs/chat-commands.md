@@ -5,6 +5,30 @@ Một trang. Nhắn **@your_bot** bằng ngôn ngữ tự nhiên — đây là v
 
 ---
 
+## 🧭 Setup & keys / Cài đặt & chìa khoá
+
+Everything here is done in chat — no server access needed.
+Toàn bộ mục này làm trong chat — không cần đụng server.
+
+| Action / Thao tác | Say something like / Nhắn đại loại |
+|---|---|
+| First-time setup / Cài đặt lần đầu | "Set up the assistant for me" · "Cài đặt giúp tôi" |
+| Continue an unfinished setup / Cài tiếp | "Continue the setup" · "Tiếp tục cài đặt" |
+| See what's missing / Xem còn thiếu gì | "Check my setup" · "Kiểm tra cài đặt giúp tôi" |
+| Replace a key / Đổi key | "I made a new Exa key, replace it" · "Mình tạo key Exa mới, đổi giúp mình" |
+| Connect Google / Kết nối Google | "Connect Google for me" · "Kết nối Google giúp tôi" |
+| Allow private Google links / Cho đọc link riêng tư | "Reconnect Google with private link access" · "Kết nối lại Google, cho phép đọc link riêng tư" |
+| Switch Google account / Đổi tài khoản Google | "Reconnect Google with another account" · "Kết nối lại Google bằng tài khoản khác" |
+
+The bot sends one link at a time and tells you exactly what to copy. After pressing
+**Allow** for Google, the browser shows an **error page — that is the expected result**;
+copy the whole address from the address bar into the chat.
+Bot gửi từng link một và chỉ rõ cần copy cái gì. Sau khi bấm **Cho phép** ở Google, trình
+duyệt hiện **trang báo lỗi — đúng như vậy là thành công**; copy toàn bộ đường link trên
+thanh địa chỉ rồi dán vào chat.
+
+---
+
 ## 🌅 Morning Report / Bản tin sáng
 
 | Action / Thao tác | Say something like / Nhắn đại loại |
@@ -25,6 +49,26 @@ Một trang. Nhắn **@your_bot** bằng ngôn ngữ tự nhiên — đây là v
 
 Styles / Phong cách: **concise** (ngắn gọn) · **deep_analysis** (phân tích sâu) · **opportunities_risks** (cơ hội & rủi ro)
 
+### 🔗 Turn a report into a document / Biến bản tin thành tài liệu
+
+No need to send anything back — the bot still has the report.
+Không cần gửi lại gì cả — bot vẫn giữ bản tin.
+
+| Action / Thao tác | Say something like / Nhắn đại loại |
+|---|---|
+| Today's report as a doc / Bản tin hôm nay ra tài liệu | "Send today's report as a Google Doc" · "Xuất bản tin sáng nay ra Google Docs" |
+| An older one / Bản tin cũ hơn | "The crypto report from yesterday as a Google Doc" · "Bản tin crypto hôm qua ra Google Docs" |
+| As slides / Thành slide | "Make slides from this morning's report" · "Làm slide từ bản tin sáng nay" |
+| As PDF | "Send that report as a PDF" · "Gửi bản tin đó dạng PDF" |
+| Which ones exist / Có những bản tin nào | "What reports can you export?" · "Có những bản tin nào xuất được?" |
+| Always save to Drive / Luôn lưu vào Drive | "Always save the gold report to Google Docs" · "Bản tin giá vàng thì lưu luôn vào Google Docs" |
+| Stop saving / Thôi lưu | "Stop saving the gold report to Google Docs" · "Thôi lưu bản tin giá vàng vào Google Docs" |
+
+Asking twice for the same report returns the **same file**, not a duplicate — say "make a
+new one" if you really want a second copy. Needs Google connected.
+Xuất lại lần hai trả về **đúng file cũ**, không tạo bản trùng — muốn bản mới thì nói "tạo
+file mới giúp mình". Cần đã kết nối Google.
+
 ---
 
 ## 📄 Document Conversion / Chuyển đổi tài liệu
@@ -40,6 +84,8 @@ Attach a file or paste a public Google link, then add a request.
 | To Markdown | "Convert this to Markdown" · "Chuyển thành Markdown" |
 | Office file too / Kèm file Office | "Send me the .pptx file too" · "Gửi mình cả file .pptx" |
 | Narrate audio / Đọc thành audio | "Read this document as audio" · "Đọc tài liệu này thành audio" |
+
+**Also / Ngoài ra**: a Morning Report you already received counts as an input — just ask, no file needed (see 🔗 above) / một bản tin sáng bạn đã nhận cũng là đầu vào — chỉ cần nhắn, không phải gửi file (xem mục 🔗 ở trên).
 
 **Input / Đầu vào**: .docx, .pptx, text-PDF, .txt, .md, Google Docs/Slides/Drive links (public **or private** in the connected account / công khai **hoặc riêng tư** trong tài khoản đã kết nối).
 **Output / Đầu ra**: a **Google Slides/Docs link + PDF** by default; PowerPoint, Word, Markdown or MP3 on request / mặc định là **link Google Slides/Docs + PDF**; PowerPoint, Word, Markdown hoặc MP3 nếu bạn yêu cầu.

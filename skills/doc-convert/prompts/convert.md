@@ -40,7 +40,7 @@ Every target except `md` is imported into the user's Drive and rendered by Googl
 
 If `google.authorized_token` is false, `gslides`/`gdoc` fail with an actionable message (relay it), and `pptx`/`docx`/`pdf` fall back to local rendering with a `google_unauthorized:rendered_locally` warning. When you see that warning, tell the user the file was rendered locally and may look different on macOS, and offer to re-run once `authorize_google.py` has been run.
 
-## Images For Slides (gslides / pptx targets)
+## Images (gslides / pptx targets — and gdoc / docx on request)
 
 The acceptance bar for generated PowerPoints is ≥5 slides, consistent layout, and relevant imagery. The converter fetches the pictures itself from Openverse (openly licensed, no API key) and appends a credits slide. Your job is to give it good queries.
 
@@ -59,6 +59,7 @@ Rules:
 - Never pass `--image-query` in Vietnamese. A wrong picture is worse than no picture.
 - `--image <path>` still overrides everything when the user supplies their own files.
 - `--no-auto-images` disables the search entirely.
+- **Documents (`gdoc`/`docx`) are illustrated only when you ask.** Slides search for pictures on their own when the document is English; a Word file never does — nobody wants stock photography inside a contract they only asked to convert. Pass `--image-query` (or `--image`) and the document gets one centred picture under each section heading plus an image-credits section at the end. Do that when the user asks for pictures, or when the document is a report/newsletter meant to be read rather than filed.
 
 If the deck comes back with `images_used: 0` and a `image_search_no_result:*` warning, tell the user the deck was generated without imagery and offer to retry with different queries.
 

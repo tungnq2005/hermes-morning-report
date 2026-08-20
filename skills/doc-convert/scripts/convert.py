@@ -113,7 +113,87 @@ def _fix_bullet_glyph(document, name: str) -> None:
                 rfonts.set(qn("w:" + attr), name)
 
 
-def build_docx(doc: dict, out_path: str) -> None:
+def _docx_section_images(doc: dict, sections: list[dict], images: list) -> tuple[str | None, dict[int, str]]:
+    """Map per-section pictures onto the headings they belong under.
+
+    `images` is indexed by section the way build_pptx consumes it, but build_docx
+    walks blocks (see below), so the translation section index -> heading ordinal
+    happens here. A document that opens with prose before its first heading has an
+    untitled section 0; its picture goes directly under the title.
+    """
+    if not images or not sections:
+        return None, {}
+    has_preamble = not sections[0].get("title")
+    preamble = images[0] if has_preamble and images[0] else None
+    offset = 1 if has_preamble else 0
+    plan: dict[int, str] = {}
+    for ordinal in range(len(sections) - offset):
+        index = ordinal + offset
+        if index < len(images) and images[index]:
+            plan[ordinal] = images[index]
+    return preamble, plan
+
+
+def _reencode_for_docx(path: str) -> str:
+    """Rewrite an image into a header python-docx can parse.
+
+    python-docx only understands JFIF (APP0) and Exif (APP1) JPEGs. Flickr -- where
+    most Openverse hits live -- serves plenty of files whose first marker is APP13
+    (a Photoshop resource block); python-pptx takes them, python-docx raises
+    UnrecognizedImageError, and the picture silently vanished from documents.
+    Pillow ships as a python-pptx dependency, so re-encoding costs no new install.
+    """
+    from PIL import Image
+
+    out = os.path.splitext(path)[0] + "-docx.jpg"
+    with Image.open(path) as img:
+        img.convert("RGB").save(out, "JPEG", quality=88)
+    return out
+
+
+def _add_docx_picture(d, path: str, rejected: list[str]) -> bool:
+    """Place one centred picture. A bad file loses its picture, not the document."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches
+
+    for candidate in (path, None):
+        if candidate is None:
+            try:
+                candidate = _reencode_for_docx(path)
+            except Exception:  # noqa: BLE001 - not an image Pillow can read either
+                break
+        try:
+            d.add_picture(candidate, width=Inches(5.5))
+        except Exception:  # noqa: BLE001 - unreadable/unsupported image header
+            continue
+        d.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        return True
+    rejected.append(os.path.basename(path))
+    return False
+
+
+def _docx_credits(d, doc: dict, credits: list[dict]) -> None:
+    """CC-BY images must name their creator, in Word as much as on a slide."""
+    import build_pptx
+    from docx.shared import Pt, RGBColor
+
+    words = build_pptx.STRINGS["en" if build_pptx._is_english(doc) else "vi"]
+    heading = d.add_heading(words["credits"], level=2)
+    for run in heading.runs:
+        run.font.name = DOCX_FONT
+    for credit in credits:
+        title = (credit.get("title") or credit.get("query") or "Untitled")[:60]
+        creator = credit.get("creator") or "Unknown"
+        licence = credit.get("license") or "CC"
+        p = d.add_paragraph(f"{title} — {creator} ({licence}) · Openverse")
+        for run in p.runs:
+            run.font.name = DOCX_FONT
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+
+def build_docx(doc: dict, out_path: str, *, sections: list[dict] | None = None,
+               images: list | None = None, credits: list[dict] | None = None) -> dict:
     import docx
     from docx.shared import Pt, RGBColor
 
@@ -131,22 +211,37 @@ def build_docx(doc: dict, out_path: str) -> None:
         run.font.name = DOCX_FONT
         run.font.color.rgb = RGBColor(0x1F, 0x3A, 0x5F)
 
+    rejected: list[str] = []
+    used = 0
+    preamble_image, image_plan = _docx_section_images(doc, sections or [], images or [])
+    if preamble_image and _add_docx_picture(d, preamble_image, rejected):
+        used += 1
+
     # Walk the blocks rather than the slide outline. `outline_sections` flattens every
     # paragraph into sentence-sized `items` because that is what slides want; reusing it
     # here turned every line of prose into a bullet and split long paragraphs across
     # several of them, so the Word file held no body text at all.
+    heading_ordinal = 0
     for block in doc["blocks"]:
         if block["kind"] == "heading":
             heading = d.add_heading(block["text"], level=min(block.get("level", 1), 4))
             for run in heading.runs:
                 run.font.name = DOCX_FONT
+            picture = image_plan.get(heading_ordinal)
+            heading_ordinal += 1
+            if picture and _add_docx_picture(d, picture, rejected):
+                used += 1
             continue
         style = "List Bullet" if block["kind"] == "bullet" else None
         p = d.add_paragraph(block["text"], style=style) if style else d.add_paragraph(block["text"])
         for run in p.runs:
             run.font.name = DOCX_FONT
             run.font.size = Pt(11)
+
+    if used and credits:
+        _docx_credits(d, doc, credits)
     d.save(out_path)
+    return {"images_used": used, "images_rejected": rejected}
 
 
 def resolve_images(args, doc: dict, sections: list[dict], run_dir: str,
@@ -205,11 +300,33 @@ def local_artifact(args, doc: dict, sections: list[dict], src: str, src_ext: str
         images, credits = resolve_images(args, doc, sections, run_dir, manifest, build_pptx)
         stats = build_pptx.build(doc, sections, out_path, min_slides=args.min_slides,
                                  images=images, subtitle=args.subtitle, credits=credits)
+        # Stat cards and card grids have no room for a photo, so a number-heavy
+        # document (a morning report, say) came out with imagery fetched and none of
+        # it shown. Rebuild once with the first picture on the cover instead of
+        # shipping a deck that quietly dropped every image it downloaded. Decks that
+        # already place pictures are left exactly as they were.
+        cover = next((p for p in images if p), None)
+        if cover and not stats.get("images_used"):
+            stats = build_pptx.build(doc, sections, out_path, min_slides=args.min_slides,
+                                     images=images, subtitle=args.subtitle, credits=credits,
+                                     cover_image=cover)
         for name in stats.pop("images_rejected", []):
             manifest["warnings"].append(f"image_embed_failed:{name}")
         manifest.update(stats)
     else:
-        build_docx(doc, out_path)
+        # Documents take pictures only when the caller asked for them. A deck is
+        # expected to be illustrated; a Word file usually is not, and nobody wants
+        # stock photography appearing inside a contract they only asked to convert.
+        images: list = []
+        credits: list[dict] = []
+        if (args.image or args.image_query) and not args.no_auto_images:
+            import build_pptx
+
+            images, credits = resolve_images(args, doc, sections, run_dir, manifest, build_pptx)
+        stats = build_docx(doc, out_path, sections=sections, images=images, credits=credits)
+        for name in stats.pop("images_rejected", []):
+            manifest["warnings"].append(f"image_embed_failed:{name}")
+        manifest.update(stats)
     return out_path
 
 
@@ -335,7 +452,8 @@ def main() -> int:
             if args.no_google:
                 raise DocConvertError("--no-google loại trừ chính target đang yêu cầu (gslides/gdoc).")
             raise DocConvertError(
-                "Chưa authorize Google. Chạy 1 lần: python3 skills/doc-convert/scripts/authorize_google.py")
+                "Chưa kết nối Google. Kết nối ngay trong chat: skill_view(name=\"guided-setup\") "
+                "-> Connect Google. (Đường terminal cho người vận hành: authorize_google.py)")
 
         # Which Office shape Google has to import: a deck for slide targets, a document
         # for the rest. `pdf` follows the input so a deck stays a deck.

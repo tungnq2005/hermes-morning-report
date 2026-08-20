@@ -1,7 +1,22 @@
 # Connecting Google Workspace for Document Conversion
 
-This guide is for whoever **installs** the bot — you, or the customer's technician. End
-users never read it; they click "Allow" once, in Step 7.
+There are **two routes** to the same result:
+
+| | **Route A — in chat** (default) | **Route B — terminal** |
+| --- | --- | --- |
+| Who does it | **the end user**, on their own | the installer |
+| Needs | Telegram + a browser | SSH to the VPS + an SSH tunnel |
+| Say / run | *"Connect Google for me"* | `bash setup/scripts/06_google_oauth_hermes.sh` |
+| Who holds `client_secret.json` | nobody has to hand it over — it goes straight to the server | the installer holds the customer's file and `scp`s it up |
+
+**Route A is the right one when the Drive belongs to the customer**: they press Allow
+themselves and you never handle their secret. The `guided-setup` skill narrates every
+console screen, takes what they paste in chat, and replaces the SSH tunnel with a simple
+trick — see [Step 7](#7-install-it-on-the-server-and-authorize-once).
+
+This guide explains **why** each screen matters, so it is written for the **installer**
+and for looking things up when something breaks. End users only need
+[first-run-setup.en.md](first-run-setup.en.md).
 
 Budget about **15 minutes**. One step is skipped by nearly everyone and it breaks the bot
 exactly seven days later — Step 5. Do not skip it.
@@ -130,6 +145,42 @@ Go to **APIs & Services → Credentials**.
 
 ## 7. Install it on the server and authorize once
 
+The two routes split here. **Route A** happens in chat, **Route B** in a terminal; the
+result is identical (`client_secret.json` + `token.json`, mode 600, in one directory).
+
+### Route A — in chat, no SSH tunnel
+
+The user says *"Connect Google for me"*, the bot narrates steps 3–6 above, and then:
+
+1. The user forwards the **downloaded JSON file** into the chat, or pastes the **Client ID
+   and Client secret**. The bot checks it really is a Desktop client and stores it in the
+   credentials directory on the server.
+2. The bot sends a **consent link**. The user opens it, picks the account, presses
+   **Allow**.
+3. The browser lands on **"This site can't be reached"** — the redirect target is
+   `http://localhost:8765` and nothing is listening on the user's own machine. **That is
+   the correct outcome**: the authorization code is sitting in the address bar.
+4. The user copies **the entire address** and pastes it into the chat. The bot exchanges
+   it for a refresh token, writes `token.json`, and reports **which Google account** got
+   connected so the user can confirm it is the right one.
+
+Step 3 is what replaces the SSH tunnel: a Desktop OAuth client is allowed to redirect to
+loopback, and **nothing has to be listening there** — the address itself carries the code.
+
+> **A trade worth stating plainly:** in step 1 the `client_secret` (or the whole JSON file)
+> travels through Telegram and stays in the user's chat history. In exchange they do it
+> themselves and never hand their secret to the installer. Delete that message once
+> connected; for a stricter posture, create a new client and delete the old one in the
+> console. Anyone who will not accept that risk should use Route B.
+
+The bot uses PKCE and checks the `state` parameter, so a stale or foreign link is refused
+rather than silently used. Consent links are valid for **one hour**; after that, ask the
+bot for a fresh one.
+
+Chat-specific failures are in the table in [Section 10](#10-troubleshooting).
+
+### Route B — terminal (installer with SSH access)
+
 Copy the JSON to the server, named exactly `client_secret.json`:
 
 ```bash
@@ -185,6 +236,12 @@ Then open the printed URL:
 
 ## 8. Verify
 
+In chat (fastest, and the user can do it): *"Check my setup"*. The bot runs
+`check_setup.py`, and for Google it runs one real conversion and sends back the link —
+evidence rather than a claim.
+
+In a terminal:
+
 ```bash
 python3 skills/doc-convert/scripts/preflight.py --compact | python3 -m json.tool
 ```
@@ -194,6 +251,7 @@ The `google` block should read:
 ```json
 "google": {
   "libs_installed": true,
+  "creds_dir": "/home/<user>/hermes-google-creds",
   "client_secret": true,
   "authorized_token": true,
   "scope_set_requested": "minimal",
@@ -223,6 +281,46 @@ The JSON should contain:
 
 Open `google_url` and look through it. This is also the moment for the customer to confirm
 the file landed in the Drive account they expected.
+
+---
+
+## 8b. Testing against real Google (once, ~10 minutes)
+
+The offline rehearsal covers the mechanics of the chat flow:
+
+```bash
+python3 skills/guided-setup/scripts/selftest.py
+```
+
+It runs the same commands the bot runs, against a throwaway `HERMES_HOME` and a **fake
+Google** on localhost, so it proves: the code is extracted correctly from the pasted
+address, the right parameters go out (PKCE verifier, matching redirect_uri), the token
+file we write loads with the library doc-convert uses, and all three failure modes
+(expired code, stale link, no refresh token) come back as sentences someone can act on.
+What it cannot prove is Google's real consent screen.
+
+That part is one manual pass with a real Google account — ideally the customer's, during
+handover. Play the user: say *"Connect Google for me"* and watch these six points:
+
+| # | What to watch | Passes when |
+| --- | --- | --- |
+| 1 | The bot asks about private Google links | It asks, and explains both options briefly |
+| 2 | Console instructions | Short messages, one screen at a time; **PUBLISH APP** and **Desktop app** both emphasised |
+| 3 | After the client is sent | It confirms storage and does **not** echo the client secret back |
+| 4 | The page after pressing Allow | The bot warned **in advance** that the error page is expected (this is where users panic) |
+| 5 | After the address is pasted | It names the **connected account's email** and asks for confirmation |
+| 6 | `google_setup.py test` | `success: true`, `render_engine: google`, and `google_url` opens a private file in the customer's Drive |
+
+Then try the two failures customers actually hit:
+
+- **Slow paste.** Take the consent link, wait 10+ minutes before pressing Allow, then
+  paste. The bot must say the link expired and offer a new one — not stall or emit a
+  technical error.
+- **Wrong paste.** Send *"I pressed allow but it showed an error"* instead of the address.
+  The bot must ask for exactly the right thing: the **whole address line** of the error
+  page.
+
+Afterwards, delete the test file from Drive and the message containing the client secret.
 
 ---
 
@@ -259,17 +357,32 @@ the file landed in the Drive account they expected.
 | A link but no PDF, plus a `google_export_failed` warning | Drive refuses exports over **10 MB** | Normal for photo-heavy decks — the link is the deliverable |
 | `warnings: ["google_unauthorized:rendered_locally"]` | No token; the file was rendered locally | Finish Step 7; the current file may look wrong on a Mac |
 
+### Chat route only (Route A)
+
+| The bot reports | Cause | Fix |
+| --- | --- | --- |
+| `no_code_in_url` | The user pasted a description or screenshot instead of the address | Ask for the **whole address line** of the error page after pressing Allow |
+| `authorization_expired` | The consent link is over an hour old | Ask the bot for a new link and finish within a few minutes |
+| `token_exchange_failed:invalid_grant` | The code was already used, or is minutes old | Get a fresh link; each one works once |
+| `state_mismatch` | An older attempt's link was pasted | Use only the most recent link the bot sent |
+| `no_refresh_token` | This account authorized before, so Google withheld a new refresh token | Remove the app at <https://myaccount.google.com/permissions> and authorize again |
+| `wrong_client_type:web` | Client created as a Web application | Recreate it as a **Desktop app** (Step 6) |
+| `consent_error:access_denied` | Cancelled, or app in Testing and the account is not a test user | Publish the app (Step 5), then authorize again |
+| `no_json_found` / `invalid_json` | Truncated paste, or a screenshot | Forward the JSON file itself, or paste **Client ID + Client secret** |
+
 ---
 
 ## 11. Maintenance
 
 - **Nothing recurring** once the app is published: refresh tokens renew themselves.
-- **Switching Google account**: delete `token.json`, re-run `authorize_google.py`, sign in
-  as the new account. Old files stay in the old account's Drive.
+- **Switching Google account**: the user says *"Reconnect Google with another account"* —
+  the old token is overwritten. Terminal route: delete `token.json` and re-run
+  `authorize_google.py`. Old files stay in the old account's Drive.
 - **Leaked client secret**: delete the client in Credentials, create a new Desktop client,
-  copy the new JSON to the server, authorize again.
-- **Changing scope set**: edit `DOC_CONVERT_GOOGLE_SCOPES`, delete `token.json`,
-  authorize again.
+  then reconnect (chat: send the bot the new client; terminal: copy the new JSON up and
+  authorize again).
+- **Changing scope set**: the user says *"Reconnect Google with private link access"*.
+  Terminal route: edit `DOC_CONVERT_GOOGLE_SCOPES`, delete `token.json`, authorize again.
 - **Clearing test files**: files the bot created during testing sit in the customer's
   Drive like any other file — delete them by hand, or leave them; they are private.
 

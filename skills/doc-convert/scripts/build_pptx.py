@@ -205,6 +205,12 @@ def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
     images = [p if p and os.path.exists(p) else None for p in (images or [])]
     words = STRINGS["en" if _is_english(doc) else "vi"]
 
+    # A picture on the cover must not appear again inside the deck: sections whose
+    # slot holds the cover image go without one rather than repeating it.
+    cover_image = cover_image if cover_image and os.path.exists(cover_image) else None
+    if cover_image:
+        images = [None if img == cover_image else img for img in images]
+
     _title_slide(prs, doc["title"], subtitle, cover_image)
     # Reach min_slides by spreading the real content thinner, never by padding: the
     # deck used to append slides whose only bullet was the literal string "(bổ sung)",
@@ -255,7 +261,8 @@ def build(doc: dict, sections: list[dict], out_path: str, min_slides: int = 5,
     _add_slide_numbers(prs)
 
     prs.save(out_path)
-    return {"slides": len(prs.slides), "images_used": placed, "images_rejected": rejected}
+    return {"slides": len(prs.slides), "images_used": placed + (1 if cover_image else 0),
+            "images_rejected": rejected}
 
 
 def _paginate(sections: list[dict], words: dict,

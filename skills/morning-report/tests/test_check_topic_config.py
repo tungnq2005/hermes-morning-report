@@ -164,6 +164,24 @@ def test_migrate_dedup_by_casefold():
     assert [t["topic"] for t in norm["topics"]] == ["AI"]
 
 
+def test_config_written_before_google_doc_existed_is_still_complete():
+    # An optional field must never turn a working install into "missing config".
+    old = {"topics": [{"topic": "AI", "delivery_time": "08:00", "timezone": "Asia/Ho_Chi_Minh",
+                       "report_style": "concise", "report_language": "Vietnamese",
+                       "audio_summary": "Enabled", "delivery_channel": "Telegram"}]}
+    result = check_topic_config(old)
+    assert result["configured"] is True, result
+    assert result["missing_config"] == {}
+    assert result["available_config"]["topics"][0]["google_doc"] == "Disabled"
+
+
+def test_google_doc_value_is_normalized():
+    cfg = {"topics": [{"topic": "AI", "google_doc": "on"}, {"topic": "Gold", "google_doc": "weird"}]}
+    topics = normalize_config(cfg)["topics"]
+    assert topics[0]["google_doc"] == "Enabled"
+    assert topics[1]["google_doc"] == "Disabled"
+
+
 # ── Run ──
 for name, fn in list(globals().items()):
     if name.startswith("test_"):

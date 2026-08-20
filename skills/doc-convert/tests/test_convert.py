@@ -295,6 +295,106 @@ class BuildTests(unittest.TestCase):
         # The only warning left is the one about rendering locally instead of in Google.
         self.assertEqual(manifest["warnings"], ["google_unauthorized:rendered_locally"])
 
+    # ── Pictures in documents (gdoc / docx) ────────────────────────────
+    def _docx_picture_layout(self, path: str) -> list[str]:
+        """Read a .docx back as a flat list: heading/paragraph texts and 'PICTURE'."""
+        import docx
+
+        out = []
+        for p in docx.Document(path).paragraphs:
+            if "graphicData" in p._p.xml:
+                out.append("PICTURE")
+            elif p.text.strip():
+                out.append(p.text.strip())
+        return out
+
+    def test_docx_puts_one_picture_under_each_section_heading(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        sections = doc_io.outline_sections(doc)
+        png = write_tiny_png(os.path.join(self.tmp, "pic.png"))
+        out = os.path.join(self.tmp, "illustrated.docx")
+
+        stats = convert.build_docx(doc, out, sections=sections,
+                                   images=[png] * len(sections), credits=[])
+        self.assertEqual(stats["images_used"], len(sections))
+        layout = self._docx_picture_layout(out)
+        for heading in ("Mục tiêu", "Phạm vi", "Tiến độ"):
+            self.assertEqual(layout[layout.index(heading) + 1], "PICTURE",
+                             f"no picture directly under {heading}: {layout}")
+
+    def test_docx_leaves_the_right_section_bare_when_a_picture_is_missing(self):
+        """A hole in the image list must skip that section, not shift the next one."""
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        sections = doc_io.outline_sections(doc)
+        png = write_tiny_png(os.path.join(self.tmp, "pic.png"))
+        images = [png] * len(sections)
+        images[sections.index(next(s for s in sections if s["title"] == "Phạm vi"))] = None
+        out = os.path.join(self.tmp, "gap.docx")
+
+        stats = convert.build_docx(doc, out, sections=sections, images=images, credits=[])
+        self.assertEqual(stats["images_used"], len(sections) - 1)
+        layout = self._docx_picture_layout(out)
+        self.assertNotEqual(layout[layout.index("Phạm vi") + 1], "PICTURE", layout)
+        self.assertEqual(layout[layout.index("Tiến độ") + 1], "PICTURE", layout)
+
+    def test_docx_credits_its_pictures(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        sections = doc_io.outline_sections(doc)
+        png = write_tiny_png(os.path.join(self.tmp, "pic.png"))
+        out = os.path.join(self.tmp, "credited.docx")
+
+        convert.build_docx(doc, out, sections=sections, images=[png] * len(sections),
+                           credits=[{"title": "Gold bars", "creator": "Jane Doe", "license": "by"}])
+        text = "\n".join(self._docx_picture_layout(out))
+        self.assertIn("Nguồn ảnh", text)  # the sample document is Vietnamese
+        self.assertIn("Jane Doe", text)
+
+    def test_docx_without_pictures_carries_no_credits_section(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        doc = doc_io.extract(src)
+        out = os.path.join(self.tmp, "plain.docx")
+
+        stats = convert.build_docx(doc, out, sections=doc_io.outline_sections(doc),
+                                   images=[], credits=[{"creator": "Jane Doe"}])
+        self.assertEqual(stats["images_used"], 0)
+        self.assertNotIn("Jane Doe", "\n".join(self._docx_picture_layout(out)))
+
+    def test_plain_conversion_to_docx_stays_free_of_stock_photos(self):
+        """Nobody wants Openverse photography inside a contract they only asked to convert."""
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        outdir = os.path.join(self.tmp, "run-docx-plain")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(SCRIPTS, "convert.py"),
+             "--input", src, "--to", "docx", "--rebuild", "--outdir", outdir],
+            capture_output=True, text=True, env=offline_env(search=True))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        manifest = json.loads(proc.stdout)
+        self.assertEqual(manifest["images_used"], 0)
+        self.assertNotIn("PICTURE", self._docx_picture_layout(manifest["output"]))
+
+    def test_docx_takes_the_pictures_the_caller_supplies(self):
+        src = os.path.join(self.tmp, "sample.docx")
+        make_sample_docx(src)
+        png = write_tiny_png(os.path.join(self.tmp, "pic.png"))
+        outdir = os.path.join(self.tmp, "run-docx-img")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(SCRIPTS, "convert.py"),
+             "--input", src, "--to", "docx", "--rebuild", "--outdir", outdir,
+             "--image", png, "--image", png],
+            capture_output=True, text=True, env=offline_env(search=False))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        manifest = json.loads(proc.stdout)
+        self.assertEqual(manifest["images_used"], 2)
+        self.assertIn("PICTURE", self._docx_picture_layout(manifest["output"]))
+
     def test_pptx_keeps_image_slots_aligned_when_one_fetch_fails(self):
         """A missing picture must leave *its own* slide bare, not shift the next one."""
         src = os.path.join(self.tmp, "sample.docx")
@@ -339,6 +439,66 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(carried, {"Alpha", "Beta", "Gamma"})
         self.assertNotIn("Alpha (cont.)", carried, "continuation slide stole the next picture")
         self.assertEqual(stats["images_used"], 3)
+
+    def test_cover_image_is_not_repeated_inside_the_deck(self):
+        doc = {"title": "Guide", "blocks": [{"kind": "para", "text": "english sample text"}]}
+        sections = [{"title": "Alpha", "items": ["a1"]}, {"title": "Beta", "items": ["b1", "b2", "b3"]}]
+        pngs = [write_tiny_png(os.path.join(self.tmp, f"{n}.png")) for n in "ab"]
+        out = os.path.join(self.tmp, "cover.pptx")
+
+        stats = build_pptx.build(doc, sections, out, min_slides=1, images=pngs, cover_image=pngs[0])
+        from pptx import Presentation
+        prs = Presentation(out)
+        with_picture = [i for i, slide in enumerate(prs.slides)
+                        if any(sh.shape_type == 13 for sh in slide.shapes)]
+        self.assertIn(0, with_picture, "the cover slide has no picture")
+        self.assertEqual(stats["images_used"], 2, "cover + Beta, with Alpha's slot released")
+
+    def test_stat_heavy_deck_still_shows_a_picture(self):
+        """Stat cards leave no room for a photo, so every fetched image used to vanish."""
+        src = os.path.join(self.tmp, "report.md")
+        with open(src, "w", encoding="utf-8") as fh:
+            fh.write("# Gold market brief\n\n## Key moves\n"
+                     "- Spot gold rose **1.2%** to **2,510 USD/ounce**.\n"
+                     "- ETF inflows reached **480 million USD**.\n"
+                     "- The dollar index fell **0.4%**.\n\n"
+                     "## Why\n- US inflation came in at **2.6%** versus **2.8%** expected.\n")
+        png = write_tiny_png(os.path.join(self.tmp, "gold.png"))
+        outdir = os.path.join(self.tmp, "run-stat")
+        proc = subprocess.run(
+            [sys.executable, os.path.join(SCRIPTS, "convert.py"),
+             "--input", src, "--to", "pptx", "--outdir", outdir,
+             "--image", png, "--image", png],
+            capture_output=True, text=True, env=offline_env(search=False))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        manifest = json.loads(proc.stdout)
+        self.assertGreaterEqual(manifest["images_used"], 1,
+                                "a number-heavy deck shipped with no imagery at all")
+
+    def test_docx_recovers_a_jpeg_python_docx_cannot_parse(self):
+        """Flickr serves JPEGs whose first marker is APP13; python-docx rejects those."""
+        from PIL import Image
+
+        raw = os.path.join(self.tmp, "photoshop.jpg")
+        Image.new("RGB", (40, 30), (200, 160, 40)).save(raw, "JPEG")
+        with open(raw, "rb") as fh:
+            data = bytearray(fh.read())
+        data[2:4] = b"\xff\xed"  # APP0 (JFIF) -> APP13 (Photoshop resource block)
+        with open(raw, "wb") as fh:
+            fh.write(data)
+
+        import docx
+        from docx.shared import Inches
+        with self.assertRaises(Exception):
+            docx.Document().add_picture(raw, width=Inches(1))
+
+        doc = {"title": "Brief", "blocks": [{"kind": "heading", "level": 1, "text": "Alpha"},
+                                            {"kind": "para", "text": "body"}]}
+        out = os.path.join(self.tmp, "recovered.docx")
+        stats = convert.build_docx(doc, out, sections=[{"title": "Alpha", "items": ["body"]}],
+                                   images=[raw], credits=[])
+        self.assertEqual(stats["images_used"], 1, stats)
+        self.assertEqual(stats["images_rejected"], [])
 
     def test_pptx_slides_carry_real_placeholders(self):
         """Free-floating textboxes left the outline view empty and broke theme changes."""

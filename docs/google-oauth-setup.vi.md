@@ -1,7 +1,22 @@
 # Kết nối Google Workspace cho Document Conversion
 
-Tài liệu này dành cho **người cài đặt** (bạn hoặc kỹ thuật viên của khách). Người dùng
-cuối không cần đọc — họ chỉ bấm "Cho phép" đúng một lần ở Bước 7.
+Có **hai đường** dẫn tới cùng một kết quả:
+
+| | **Cách A — qua chat** (mặc định) | **Cách B — qua terminal** |
+| --- | --- | --- |
+| Ai làm | **người dùng cuối**, tự làm | người cài đặt |
+| Cần gì | Telegram + trình duyệt | SSH vào VPS + SSH tunnel |
+| Nhắn/chạy | *"Kết nối Google giúp tôi"* | `bash setup/scripts/06_google_oauth_hermes.sh` |
+| Ai giữ `client_secret.json` | không ai phải gửi cho ai — file nằm luôn trên server | người cài phải cầm file của khách rồi `scp` lên |
+
+**Cách A là đường nên dùng khi Google Drive là tài khoản của khách**: họ tự bấm cho phép,
+bạn không phải cầm bí mật của họ. Skill `guided-setup` dẫn từng màn hình Console bằng lời,
+nhận thông tin họ dán vào chat, và thay SSH tunnel bằng một mẹo đơn giản — xem
+[Bước 7](#7-đưa-lên-server-và-cấp-quyền-một-lần).
+
+Tài liệu này giải thích **vì sao** từng màn hình lại quan trọng, nên nó dành cho **người
+cài đặt** đọc, và cho bạn tra khi có sự cố. Người dùng cuối chỉ cần
+[first-run-setup.vi.md](first-run-setup.vi.md).
 
 Làm đủ các bước mất khoảng **15 phút**. Có **một bước ai cũng bỏ qua và nó làm bot chết
 đúng 7 ngày sau** — Bước 5. Đừng bỏ.
@@ -126,6 +141,40 @@ Vào **APIs & Services → Credentials**.
 
 ## 7. Đưa lên server và cấp quyền một lần
 
+Đến đây hai đường tách nhau. **Cách A** làm trong chat, **Cách B** làm ở terminal; kết quả
+giống hệt nhau (`client_secret.json` + `token.json`, quyền 600, trong cùng một thư mục).
+
+### Cách A — qua chat, không cần SSH tunnel
+
+Người dùng nhắn *"Kết nối Google giúp tôi"*, bot dẫn hết các bước 3–6 ở trên bằng lời, rồi:
+
+1. Người dùng gửi **file JSON vừa tải** vào chat, hoặc dán **Client ID + Client secret**.
+   Bot kiểm tra ngay đúng loại Desktop app rồi lưu vào thư mục creds trên server.
+2. Bot gửi một **link cấp quyền**. Người dùng mở, chọn tài khoản, bấm **Cho phép**.
+3. Trình duyệt nhảy sang trang **"This site can't be reached"** — vì địa chỉ trả về là
+   `http://localhost:8765`, mà máy người dùng chẳng có gì chạy ở cổng đó. **Đó là kết quả
+   đúng**: mã cấp quyền nằm sẵn trên thanh địa chỉ.
+4. Người dùng copy **toàn bộ đường link trên thanh địa chỉ** và dán vào chat. Bot đổi mã
+   đó lấy refresh token, lưu `token.json`, và báo lại **email tài khoản Google vừa kết
+   nối** để người dùng xác nhận đúng tài khoản.
+
+Mẹo ở mục 3 chính là thứ thay cho SSH tunnel: OAuth client loại Desktop được phép trả về
+loopback, và **không cần có gì lắng nghe ở cổng đó** — chỉ cần đọc lại đường link.
+
+> **Đánh đổi cần nói thẳng:** ở mục 1, `client_secret` (hoặc cả file JSON) đi qua tin nhắn
+> Telegram nên nằm lại trong lịch sử chat của người dùng. Đổi lại họ tự làm được, không
+> phải gửi bí mật của mình cho người cài. Kết nối xong nên xoá tin nhắn đó; muốn chặt chẽ
+> hơn thì tạo client mới rồi xoá client cũ trong Console. Không chấp nhận rủi ro này thì
+> dùng Cách B.
+
+Bot dùng PKCE và kiểm tra tham số `state`, nên một đường link cũ hoặc của phiên khác sẽ bị
+từ chối chứ không âm thầm dùng nhầm. Link cấp quyền sống **1 tiếng**; quá hạn thì nhắn bot
+gửi link mới.
+
+Bảng lỗi ở [mục 10](#10-sự-cố-thường-gặp) có cả các lỗi riêng của đường chat.
+
+### Cách B — qua terminal (người cài có sẵn SSH)
+
 Chép file JSON lên server, đặt đúng tên `client_secret.json`:
 
 ```bash
@@ -180,6 +229,12 @@ Rồi dán URL vào trình duyệt:
 
 ## 8. Kiểm tra
 
+Trong chat (cách nhanh nhất, người dùng tự làm được): nhắn *"Kiểm tra cài đặt giúp tôi"*.
+Bot chạy `check_setup.py`, và với Google thì chạy hẳn một lần chuyển đổi thật rồi gửi link
+để xác nhận — đúng bằng chứng, không phải lời hứa.
+
+Ở terminal:
+
 ```bash
 python3 skills/doc-convert/scripts/preflight.py --compact | python3 -m json.tool
 ```
@@ -189,6 +244,7 @@ Phần `google` phải như sau:
 ```json
 "google": {
   "libs_installed": true,
+  "creds_dir": "/home/<user>/hermes-google-creds",
   "client_secret": true,
   "authorized_token": true,
   "scope_set_requested": "minimal",
@@ -217,6 +273,44 @@ Trong JSON kết quả cần thấy:
 
 Mở `google_url` xem một lượt. Đây cũng là lúc tốt nhất để khách xác nhận file nằm đúng
 tài khoản Drive mà họ muốn.
+
+---
+
+## 8b. Kiểm thử với Google thật (1 lần, ~10 phút)
+
+Diễn tập offline đã phủ hết phần cơ khí của luồng chat:
+
+```bash
+python3 skills/guided-setup/scripts/selftest.py
+```
+
+Nó chạy đúng các lệnh bot sẽ chạy, trên `HERMES_HOME` tạm và một **Google giả** chạy ở
+localhost — nên nó chứng minh được: mã lấy ra đúng từ đường link dán vào, tham số gửi lên
+đúng (PKCE verifier, redirect_uri khớp), token ghi ra đọc được bằng chính thư viện
+doc-convert dùng, và 3 kiểu hỏng (mã hết hạn, link cũ, không có refresh token) đều báo
+thành câu sửa được. Cái nó **không** chứng minh được là màn hình consent thật của Google.
+
+Phần đó phải làm tay đúng một lần, bằng một tài khoản Google thật (dùng luôn tài khoản
+của khách trong buổi bàn giao là tốt nhất). Đóng vai người dùng, nhắn bot *"Kết nối Google
+giúp tôi"* rồi soi 6 điểm sau:
+
+| # | Nhìn cái gì | Đạt khi |
+| --- | --- | --- |
+| 1 | Bot hỏi có cần đọc link Google riêng tư không | Có hỏi, và giải thích ngắn gọn 2 lựa chọn |
+| 2 | Hướng dẫn Console | Từng tin nhắn ngắn, mỗi lần một màn hình; có nhấn **PUBLISH APP** và **Desktop app** |
+| 3 | Sau khi gửi client | Bot báo đã lưu, **không** đọc lại client secret ra chat |
+| 4 | Trang sau khi bấm Cho phép | Bot đã **báo trước** rằng trang lỗi là bình thường (đây là chỗ khách hoảng nhất) |
+| 5 | Sau khi dán link | Bot báo **đúng email tài khoản** vừa kết nối và hỏi xác nhận |
+| 6 | `google_setup.py test` | `success: true`, `render_engine: google`, mở `google_url` thấy file nằm trong Drive của khách ở chế độ riêng tư |
+
+Thử thêm 2 tình huống hỏng — đây là 2 cái khách gặp thật nhiều nhất:
+
+- **Dán chậm.** Lấy link cấp quyền, đợi >10 phút rồi mới bấm Cho phép và dán vào. Bot phải
+  nói "link đã hết hạn, để mình gửi link mới" chứ không im hoặc đổ lỗi kỹ thuật.
+- **Dán nhầm.** Dán câu *"mình bấm cho phép rồi mà nó báo lỗi"* thay vì đường link. Bot phải
+  hỏi lại đúng thứ cần: **cả dòng địa chỉ** trên trang lỗi.
+
+Sau khi kiểm xong, nhớ xoá file thử trong Drive và xoá tin nhắn chứa client secret.
 
 ---
 
@@ -252,16 +346,32 @@ tài khoản Drive mà họ muốn.
 | Có link nhưng không kèm PDF, cảnh báo `google_export_failed` | Drive từ chối xuất file trên **10 MB** | Bình thường với deck nhiều ảnh — giao link là đủ |
 | `warnings: ["google_unauthorized:rendered_locally"]` | Không có token; file do thư viện cục bộ dựng | Hoàn tất Bước 7; file hiện tại có thể hiển thị lệch trên máy Mac |
 
+### Riêng đường chat (Cách A)
+
+| Bot báo | Nguyên nhân | Cách xử lý |
+| --- | --- | --- |
+| `no_code_in_url` | Người dùng dán mô tả hoặc ảnh chụp thay vì đường link | Nhắc: copy **toàn bộ dòng địa chỉ** của trang báo lỗi sau khi bấm Cho phép |
+| `authorization_expired` | Link cấp quyền quá 1 tiếng | Nhắn bot gửi link mới rồi làm lại trong vài phút |
+| `token_exchange_failed:invalid_grant` | Mã cấp quyền đã dùng rồi, hoặc quá vài phút | Xin link mới; mỗi link chỉ dùng được một lần |
+| `state_mismatch` | Dán nhầm link của lần cấp quyền cũ | Dùng đúng link mới nhất bot vừa gửi |
+| `no_refresh_token` | Tài khoản này đã cấp quyền trước đó nên Google không cấp lại refresh token | Vào <https://myaccount.google.com/permissions> gỡ app, rồi cấp quyền lại |
+| `wrong_client_type:web` | Tạo nhầm client loại Web application | Tạo lại client loại **Desktop app** (Bước 6) |
+| `consent_error:access_denied` | Bấm Cancel, hoặc app còn Testing mà tài khoản không nằm trong test users | Publish app (Bước 5) rồi cấp quyền lại |
+| `no_json_found` / `invalid_json` | Dán thiếu, hoặc gửi ảnh chụp màn hình | Gửi thẳng file JSON, hoặc dán **Client ID + Client secret** |
+
 ---
 
 ## 11. Bảo trì
 
 - **Không có việc định kỳ nào** nếu đã publish app: refresh token tự làm mới.
-- **Đổi tài khoản Google**: xoá `token.json`, chạy lại `authorize_google.py`, đăng nhập
-  tài khoản mới. File cũ vẫn nằm ở Drive tài khoản cũ.
-- **Client secret bị lộ**: vào Credentials, xoá client cũ, tạo Desktop client mới, chép
-  JSON mới lên server, authorize lại.
-- **Đổi bộ quyền**: sửa `DOC_CONVERT_GOOGLE_SCOPES`, xoá `token.json`, authorize lại.
+- **Đổi tài khoản Google**: người dùng nhắn *"Kết nối lại Google bằng tài khoản khác"* —
+  token cũ bị ghi đè. Đường terminal: xoá `token.json`, chạy lại `authorize_google.py`.
+  File cũ vẫn nằm ở Drive tài khoản cũ.
+- **Client secret bị lộ**: vào Credentials, xoá client cũ, tạo Desktop client mới, rồi kết
+  nối lại (chat: gửi client mới cho bot; terminal: chép JSON mới lên server và authorize
+  lại).
+- **Đổi bộ quyền**: người dùng nhắn *"Kết nối lại Google, cho phép đọc link riêng tư"*.
+  Đường terminal: sửa `DOC_CONVERT_GOOGLE_SCOPES`, xoá `token.json`, authorize lại.
 - **Dọn file thử nghiệm**: file bot tạo lúc test nằm trong Drive của khách như file thường
   — xoá tay được, hoặc để đó vì chúng riêng tư.
 

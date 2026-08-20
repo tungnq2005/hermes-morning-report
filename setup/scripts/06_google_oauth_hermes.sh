@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Bước 06 (Hermes): kết nối Google Workspace cho doc-convert (D2).
+# Bước 06 (Hermes): kết nối Google Workspace cho doc-convert (D2) — ĐƯỜNG TERMINAL.
+#
+# CÓ ĐƯỜNG NGẮN HƠN: skill `guided-setup` làm đúng việc này ngay trong chat Telegram,
+# không cần SSH tunnel — bot gửi link, người dùng bấm Cho phép rồi dán lại đường link
+# trên thanh địa chỉ. Đó là đường mặc định cho khách tự kết nối tài khoản Google của họ.
+# Script này vẫn giữ cho người cài có sẵn terminal và muốn làm xong luôn trong lúc deploy.
 #
 # Bước này nằm TRONG luồng setup chứ không phải tài liệu đọc thêm, vì hai lý do:
 #   1. Không có Google thì D2 vẫn chạy nhưng dựng file bằng thư viện cục bộ — đúng loại
@@ -66,12 +71,19 @@ case "$SCOPES" in
         ;;
 esac
 echo
+echo "Bỏ qua ở đây là lựa chọn hợp lý khi Google Drive là TÀI KHOẢN CỦA KHÁCH: họ tự kết"
+echo "nối qua chat, không phải đưa file client_secret.json cho bạn. Bảo khách nhắn bot:"
+echo '  "Kết nối Google giúp tôi"'
+echo
 read -r -p "Bỏ qua Google và tiếp tục? (y để BỎ QUA, Enter để cài): " SKIP
 if [[ "${SKIP,,}" == "y" ]]; then
     echo
-    echo "ĐÃ BỎ QUA. D2 sẽ chạy ở chế độ dựng file cục bộ và ghi cảnh báo"
+    echo "ĐÃ BỎ QUA. Cho tới khi kết nối, D2 dựng file cục bộ và ghi cảnh báo"
     echo "'google_unauthorized:rendered_locally' trong manifest mỗi lần chuyển đổi."
-    echo "Chạy lại bước này bất cứ lúc nào: bash setup/scripts/06_google_oauth_hermes.sh"
+    echo
+    echo "Kết nối sau bằng 1 trong 2 đường:"
+    echo "  • Qua chat (khách tự làm, không cần SSH): nhắn bot 'Kết nối Google giúp tôi'"
+    echo "  • Qua terminal: bash setup/scripts/06_google_oauth_hermes.sh"
     exit 0
 fi
 

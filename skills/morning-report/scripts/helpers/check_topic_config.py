@@ -34,6 +34,15 @@ PREFERENCE_FIELDS = [
 
 REQUIRED_TOPIC_FIELDS = ["topic", *PREFERENCE_FIELDS]
 
+# Optional per-topic fields: they always have a usable default, so a config that
+# predates them is complete, not broken. Never add these to REQUIRED_TOPIC_FIELDS --
+# that would make every existing install report missing_config after an update.
+OPTIONAL_TOPIC_FIELDS = ["google_doc"]
+OPTIONAL_FIELD_DEFAULTS: dict[str, str] = {"google_doc": "Disabled"}
+
+# Every editable field, in the order changes are presented to the user.
+EDITABLE_FIELDS = [*PREFERENCE_FIELDS, *OPTIONAL_TOPIC_FIELDS]
+
 # Defaults used when adding a brand-new topic with no existing topic to copy from.
 DEFAULT_TOPIC_CONFIG: dict[str, str] = {
     "delivery_time": "08:00",
@@ -42,7 +51,22 @@ DEFAULT_TOPIC_CONFIG: dict[str, str] = {
     "report_language": "English",
     "audio_summary": "Enabled",
     "delivery_channel": "Telegram",
+    "google_doc": "Disabled",
 }
+
+
+def normalize_toggle(value: Any, default: str = "Disabled") -> str:
+    """Coerce an on/off field to Enabled/Disabled.
+
+    A stray value must not block the daily report, so anything unrecognised falls
+    back to the default instead of counting as missing config.
+    """
+    text = str(value or "").strip().casefold()
+    if text in ("enabled", "enable", "on", "true", "yes"):
+        return "Enabled"
+    if text in ("disabled", "disable", "off", "false", "no"):
+        return "Disabled"
+    return default
 
 
 def normalize_topics(value: Any) -> list[str]:
@@ -70,7 +94,14 @@ def _topic_obj(topic: str, shared: dict[str, Any]) -> dict[str, Any]:
     obj: dict[str, Any] = {"topic": topic}
     for field in PREFERENCE_FIELDS:
         obj[field] = shared.get(field, "")
+    _apply_optional_fields(obj, shared)
     return obj
+
+
+def _apply_optional_fields(obj: dict[str, Any], source: dict[str, Any]) -> None:
+    for field in OPTIONAL_TOPIC_FIELDS:
+        default = OPTIONAL_FIELD_DEFAULTS[field]
+        obj[field] = normalize_toggle(source.get(field), default)
 
 
 def normalize_config(data: dict[str, Any]) -> dict[str, Any]:
@@ -98,6 +129,7 @@ def normalize_config(data: dict[str, Any]) -> dict[str, Any]:
             obj: dict[str, Any] = {"topic": topic}
             for field in PREFERENCE_FIELDS:
                 obj[field] = item.get(field, "")
+            _apply_optional_fields(obj, item)
             topics.append(obj)
         return {"topics": topics}
 

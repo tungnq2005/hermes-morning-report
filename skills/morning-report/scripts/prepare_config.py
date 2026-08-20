@@ -2,7 +2,7 @@
 """Prepare Morning Report setup/update flow (per-topic config) from current config.
 
 Config schema (per-topic): {"topics": [ {topic, delivery_time, timezone,
-report_style, report_language, audio_summary, delivery_channel}, ... ]}.
+report_style, report_language, audio_summary, delivery_channel, google_doc}, ... ]}.
 Every preference field is owned by each topic, so each topic maps to its own
 cron job and its own delivered report.
 """
@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from helpers.check_topic_config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_TOPIC_CONFIG,
-    PREFERENCE_FIELDS,
+    EDITABLE_FIELDS,
     check_topic_config,
     normalize_config,
     normalize_topics,
@@ -38,10 +38,12 @@ CRON_SKILL = "morning-report"
 CRON_PROMPT_TEMPLATE = (
     "Follow the Run Report workflow in SKILL.md for only the topic '{topic}'. "
     "Do not process other topics. Run collect_sources.py with --topic '{topic}' once, "
-    "then Step 3 and Step 4. "
+    "then Step 3, Step 4 and Step 5. "
     "Your final response MUST START with the report's title line (the '# ' heading) and "
     "contain ONLY: the report.md content verbatim (including the ### Sources footer), "
-    "then a line MEDIA:<the MP3 output path you passed to generate_audio_file.py in Step 4>. "
+    "then a line MEDIA:<the MP3 output path you passed to generate_audio_file.py in Step 4>, "
+    "then - only if this topic's config has google_doc Enabled - one final short line with "
+    "the Google Docs link from Step 5. "
     "Do NOT write any line before the title — no 'All steps complete', no 'Delivering the final report', "
     "no 'Here is the report', no progress or announcement text, no summary."
 )
@@ -76,11 +78,12 @@ def collect_requested_config(args: argparse.Namespace) -> dict[str, Any]:
         "report_language": args.report_language,
         "audio_summary": args.audio_summary,
         "delivery_channel": args.delivery_channel,
+        "google_doc": args.google_doc,
     }
 
 
 def _field_changes(requested: dict[str, Any]) -> dict[str, Any]:
-    return {field: requested[field] for field in PREFERENCE_FIELDS if requested.get(field) is not None}
+    return {field: requested[field] for field in EDITABLE_FIELDS if requested.get(field) is not None}
 
 
 def apply_requested_config(data: dict[str, Any], requested: dict[str, Any]) -> dict[str, Any]:
@@ -125,7 +128,7 @@ def _append_field_bullets(
     bullets: list[str], new_obj: dict[str, Any], old_obj: dict[str, Any], changes: dict[str, Any]
 ) -> None:
     label = new_obj["topic"]
-    for field in PREFERENCE_FIELDS:
+    for field in EDITABLE_FIELDS:
         if field in changes:
             old = old_obj.get(field)
             new = new_obj.get(field)
@@ -544,6 +547,8 @@ def main() -> int:
     parser.add_argument("--report-language", dest="report_language")
     parser.add_argument("--audio-summary", dest="audio_summary")
     parser.add_argument("--delivery-channel", dest="delivery_channel")
+    parser.add_argument("--google-doc", dest="google_doc",
+                        help="Enabled/Disabled: also save each delivered report as a Google Doc.")
     args = parser.parse_args()
     state_path = Path(args.state)
 

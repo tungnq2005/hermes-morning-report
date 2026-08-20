@@ -5,14 +5,18 @@ Hai trợ lý AI chạy qua **Telegram bot** (nền tảng **Hermes**, cài nati
 1. **Morning Report** — mỗi sáng bot tự tổng hợp tin theo chủ đề bạn chọn và gửi **bản chữ + audio 3–5 phút**. Đổi chủ đề / giờ gửi / phong cách bằng cách nhắn bot.
 2. **Document Conversion** — gửi file (Word/PowerPoint/PDF/Markdown) hoặc link Google, bot dựng kết quả **thẳng trên Google Slides/Docs** (kèm bản PDF), hoặc **đọc thành audio**. File Office (.pptx/.docx) nếu cần đều được **export ra từ chính file Google** nên mở trên Mac hay Windows đều giống nhau.
 
+Hai tính năng nối thẳng vào nhau: **bản tin sáng chính là một đầu vào của phần chuyển đổi**. Nhắn *"Xuất bản tin sáng nay ra Google Docs"* hay *"Làm slide từ bản tin crypto hôm qua"* là bot lấy đúng bản tin đã lưu rồi dựng file — người dùng không phải gửi lại gì cả.
+
 > Two Telegram-based AI agents on Hermes: a daily **Morning Report** (text + audio brief) and a **Document Conversion** agent that delivers **Google Slides/Docs** (plus Google-exported .pptx/.docx/.pdf) and narration.
 
 ---
 
 ## Tính năng chính
 
+- 🧭 **Cài đặt ngay trong chat**: bot dẫn người dùng lấy từng API key và kết nối Google, họ dán key vào Telegram — không terminal, không SSH tunnel
 - 📰 Bản tin sáng tự động (cron), text + audio, đa chủ đề, đổi cấu hình qua chat
 - 📄 Chuyển đổi tài liệu: docx ↔ pptx ↔ pdf ↔ md, slide có layout nhất quán (cover, section divider, thẻ số liệu, ảnh minh họa)
+- 🔗 **Bản tin → tài liệu**: xuất bất kỳ bản tin nào đã nhận (hôm nay hay tuần trước) ra Google Docs/Slides/PDF chỉ bằng một câu nhắn; xuất lại lần hai trả về đúng file cũ thay vì tạo bản trùng trong Drive. Muốn tự động thì bật *"lưu bản tin vào Google Docs"* cho từng chủ đề
 - ☁️ Google Workspace là renderer chính: kết quả nằm trên Google Slides/Docs, hiển thị y hệt trên macOS/Windows/iPad; đọc được Docs/Slides/Drive riêng tư
 - 🔊 Text-to-speech (Google TTS) cho cả bản tin lẫn tài liệu
 - 🔒 Secrets tách khỏi code (`~/.hermes/.env`, quyền 600), không plaintext trong config.yaml
@@ -26,6 +30,7 @@ Telegram  ──long-polling──►  Hermes Gateway (native, systemd, 127.0.0.
                                  ├─ Search: Brave / Tavily / SearXNG / Exa  ·  Fetch: Firecrawl
                                  ├─ TTS: Google TTS → MP3
                                  └─ Skills:
+                                      • guided-setup     (cài đặt & kết nối key qua chat)
                                       • morning-report  (D1)
                                       • doc-convert      (D2)
 ```
@@ -33,6 +38,7 @@ Telegram  ──long-polling──►  Hermes Gateway (native, systemd, 127.0.0.
 ## Cấu trúc repo
 
 ```
+skills/guided-setup/      Skill dẫn người dùng lấy key + kết nối Google ngay trong chat
 skills/morning-report/   Skill bản tin sáng (D1)
 skills/doc-convert/       Skill chuyển đổi tài liệu (D2)
 setup/                    Script cài đặt VPS + config.env.example
@@ -56,12 +62,19 @@ chmod +x setup_all_hermes.sh scripts/*.sh
 ./setup_all_hermes.sh
 ```
 
+Xong phần máy chủ, **phần còn lại làm trong chat**: mở Telegram nhắn bot
+
+> **Cài đặt giúp tôi**
+
+Bot kiểm tra còn thiếu gì, dẫn từng bước tạo API key (Exa / Firecrawl / Brave) và kết nối Google Workspace, nhận key người dùng **dán vào chat**, tự kiểm tra với nhà cung cấp rồi lưu vào `~/.hermes/.env` (quyền 600). Kết nối Google **không cần SSH tunnel**: bot gửi link, người dùng bấm Cho phép rồi dán lại đường link trên thanh địa chỉ. Người cài **không phải cầm key của khách**.
+
 Chi tiết từng bước + wizard tương tác: xem [setup/README.md](setup/README.md).
-Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key, **Exa, Firecrawl & Brave (optional) API keys**, Google OAuth) — repo không chứa secret nào.
+Mọi **secret là của người dùng** (Telegram bot token, DeepSeek/model key, **Exa, Firecrawl & Brave (optional) API keys**, Google OAuth) — repo không chứa secret nào.
 
 ## Tài liệu
 
 - Người dùng cuối: [docs/user-guide.vi.md](docs/user-guide.vi.md) · [EN](docs/user-guide.en.md)
+- **Cài đặt qua chat (đường mặc định)**: [docs/first-run-setup.vi.md](docs/first-run-setup.vi.md) · [EN](docs/first-run-setup.en.md)
 - **Kết nối Google (bắt buộc cho D2)**: [docs/google-oauth-setup.vi.md](docs/google-oauth-setup.vi.md) · [EN](docs/google-oauth-setup.en.md)
 - Bảng lệnh nhanh: [docs/chat-commands.md](docs/chat-commands.md)
 - Vận hành/quản trị: [docs/operator-runbook.vi.md](docs/operator-runbook.vi.md) · [EN](docs/operator-runbook.en.md)
@@ -70,8 +83,8 @@ Bạn tự cấp **secrets của mình** (Telegram bot token, DeepSeek/model key
 ## Yêu cầu
 
 - VPS Ubuntu 22.04/24.04+, ≥ 2GB RAM (LibreOffice + audio)
-- Telegram bot token (@BotFather), model API key (DeepSeek…), Exa & Firecrawl API keys (cho Morning Report)
-- (Tùy chọn) Google Cloud OAuth client cho tính năng Google Workspace
+- Telegram bot token (@BotFather) + model API key (DeepSeek…) — nhập lúc cài, ở bước 02
+- Exa API key cho Morning Report; Firecrawl & Brave nên có; Google Cloud OAuth client nếu cần Google Slides/Docs — **tất cả những cái này lấy được ngay trong chat**, xem [docs/first-run-setup.vi.md](docs/first-run-setup.vi.md)
 
 
 ## Bảo mật

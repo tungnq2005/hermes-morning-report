@@ -34,16 +34,22 @@ run 04_bootstrap_skill_hermes.sh
 if [[ "${OC_SEARCH_PROVIDER:-}" == "searxng" ]]; then
   run 05_searxng_hermes.sh
 fi
-# 06: Google Workspace cho D2. Nằm trong luồng chính chứ không phải "tuỳ chọn sau khi
-# cài" — thiếu nó thì doc-convert dựng file cục bộ, đúng loại file hiển thị lệch trên
-# máy Mac, mà người cài không có cách nào biết. Script cho phép bỏ qua có chủ đích.
+# 06: Google Workspace cho D2. Vẫn nằm trong luồng chính chứ không phải "tuỳ chọn sau khi
+# cài" — thiếu nó thì doc-convert dựng file cục bộ, đúng loại file hiển thị lệch trên máy
+# Mac, mà người cài không có cách nào biết. Bỏ qua được có chủ đích: khi Drive là tài
+# khoản của khách, họ tự kết nối qua chat (skill guided-setup) mà không cần SSH tunnel.
 run 06_google_oauth_hermes.sh
 
 echo
 echo "================================================================"
-echo "HOÀN TẤT! Mở Telegram chat với bot để setup Morning Report:"
-echo "  'Setup Morning Report cho tôi bằng skill morning report.'"
-echo "  (hoặc chạy trực tiếp: python3 ~/.hermes/skills/productivity/morning-report/scripts/prepare_config.py --save --enable-cron)"
+echo "HOÀN TẤT phần máy chủ. Phần còn lại làm TRONG CHAT — mở Telegram,"
+echo "nhắn bot đúng một câu:"
 echo
-echo "Kiểm tra sức khoẻ: bash scripts/healthcheck_hermes.sh"
+echo "      Cài đặt giúp tôi"
+echo
+echo "Bot sẽ tự kiểm tra còn thiếu gì, dẫn từng bước lấy key (Exa, Firecrawl,"
+echo "Brave), kết nối Google, hỏi chủ đề + giờ gửi bản tin, rồi chạy thử một"
+echo "lần để chứng minh là chạy được. Người dùng không cần đụng terminal."
+echo
+echo "Kiểm tra sức khoẻ (dành cho người quản trị): bash scripts/healthcheck_hermes.sh"
 echo "================================================================"
