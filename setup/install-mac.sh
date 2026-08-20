@@ -221,7 +221,7 @@ step_hermes_setup() {
 
 # ── Step 4-5: skills + search keys ─────────────────────────────────────
 step_install_skills() {
-    say_step "Step 5 of 10 — installing the morning report skill"
+    say_step "Step 5 of 10 — installing the skills"
 
     mkdir -p "$HERMES_SKILLS_DIR/productivity"
     # Copy, never symlink: a symlink into a downloaded folder dies silently the
@@ -232,6 +232,16 @@ step_install_skills() {
         exit 1
     fi
     say_ok "Skill installed at $MR_SKILL_DEST"
+
+    # SOUL.md sends the user to `guided-setup` for anything to do with keys or
+    # connecting Google, so the skill has to be here or "set this up for me"
+    # lands on a skill that does not exist.
+    rsync -a --delete "$SRC_DIR/skills/guided-setup/" "$HERMES_SKILLS_DIR/guided-setup/"
+    if [[ ! -f "$HERMES_SKILLS_DIR/guided-setup/SKILL.md" ]]; then
+        say_err "The setup skill was not copied correctly to $HERMES_SKILLS_DIR/guided-setup"
+        exit 1
+    fi
+    say_ok "In-chat setup skill installed."
 
     if [[ -f "$HOME/.hermes/SOUL.md" ]]; then
         say_dim "  ~/.hermes/SOUL.md already exists — kept as it is."
@@ -249,7 +259,8 @@ step_install_skills() {
     if [[ "$DEV_MODE" == "true" ]]; then
         say_dim "  --dev: running the unit tests"
         local t
-        for t in "$SRC_DIR"/skills/morning-report/tests/test_*.py; do
+        for t in "$SRC_DIR"/skills/morning-report/tests/test_*.py \
+                 "$SRC_DIR"/skills/guided-setup/tests/test_*.py; do
             "$PY" "$t" || say_warn "  test failed: $(basename "$t")"
         done
     fi
